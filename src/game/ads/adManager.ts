@@ -751,9 +751,12 @@ export class AdManager {
       return AD_FREQUENCY_CONFIG.rewardedGold.daily_bonus;
     }
     if (placement === 'level_clear_bonus') {
-      return Math.max(
-        AD_FREQUENCY_CONFIG.rewardedGold.level_clear_bonus_min,
-        Math.round(levelGoldEarned * AD_FREQUENCY_CONFIG.rewardedGold.level_clear_bonus_ratio),
+      const scaled = Math.round(
+        Math.max(0, levelGoldEarned) * AD_FREQUENCY_CONFIG.rewardedGold.level_clear_bonus_ratio,
+      );
+      return Math.min(
+        AD_FREQUENCY_CONFIG.rewardedGold.level_clear_bonus_max,
+        Math.max(AD_FREQUENCY_CONFIG.rewardedGold.level_clear_bonus_min, scaled),
       );
     }
     return AD_FREQUENCY_CONFIG.rewardedGold.extra_gold_shop;

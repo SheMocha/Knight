@@ -266,15 +266,32 @@ export const GameModals: React.FC<GameModalsProps> = ({
                 </div>
 
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-[#aba395]">Kazanılan Altın</span>
-                  <span className="font-crest font-bold text-[#f2cb6c] flex items-center gap-1">
+                  <span className="text-xs text-[#aba395]">Bölümde Toplanan Altın</span>
+                  <span className="font-crest font-bold text-[#e5cf8e] flex items-center gap-1">
                     <Coins className="w-3.5 h-3.5 text-[#eab84c]" />+
                     {result.levelGold.toLocaleString('tr-TR')}
                   </span>
                 </div>
 
+                {result.completionBonusGold > 0 && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-[#aba395]">Bölüm Tamamlama Bonusu</span>
+                    <span className="font-crest font-bold text-emerald-300">
+                      +{result.completionBonusGold.toLocaleString('tr-TR')}
+                    </span>
+                  </div>
+                )}
+
+                <div className="pt-1.5 border-t border-white/10 flex items-center justify-between">
+                  <span className="text-xs font-semibold text-[#d9c392]">Kalıcı Bakiyeye Aktarılan</span>
+                  <span className="font-crest font-black text-[#f6d36b] flex items-center gap-1">
+                    <Coins className="w-3.5 h-3.5 text-[#f2c94c]" />+
+                    {result.totalGoldAwarded.toLocaleString('tr-TR')}
+                  </span>
+                </div>
+
                 <div className="pt-1.5 border-t border-white/8 flex items-center justify-between text-xs">
-                  <span className="text-[#938c80]">Toplam Altın Kesesi</span>
+                  <span className="text-[#938c80]">Kalıcı Altın Kesesi</span>
                   <span className="font-bold text-[#d8c49a]">
                     {result.walletGold.toLocaleString('tr-TR')} Altın
                   </span>
@@ -354,7 +371,7 @@ export const GameModals: React.FC<GameModalsProps> = ({
                     <span>
                       Reklam İzle · +
                       {adManager
-                        .computeRewardGold('level_clear_bonus', result.levelGold)
+                        .computeRewardGold('level_clear_bonus', result.totalGoldAwarded)
                         .toLocaleString('tr-TR')}{' '}
                       Ekstra Altın (İsteğe Bağlı)
                     </span>
@@ -491,14 +508,29 @@ export const GameModals: React.FC<GameModalsProps> = ({
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-[#aba395]">Kazanılan Altın</span>
-                  <span className="font-crest font-bold text-[#f2cb6c] flex items-center gap-1">
+                  <span className="text-xs text-[#aba395]">Bölümde Toplanan Altın</span>
+                  <span className="font-crest font-bold text-[#e5cf8e] flex items-center gap-1">
                     <Coins className="w-3.5 h-3.5 text-[#eab84c]" />+
                     {result.levelGold.toLocaleString('tr-TR')}
                   </span>
                 </div>
+                {result.completionBonusGold > 0 && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-[#aba395]">Bölüm Tamamlama Bonusu</span>
+                    <span className="font-crest font-bold text-emerald-300">
+                      +{result.completionBonusGold.toLocaleString('tr-TR')}
+                    </span>
+                  </div>
+                )}
+                <div className="pt-1.5 border-t border-white/10 flex items-center justify-between">
+                  <span className="text-xs font-semibold text-[#d9c392]">Kalıcı Bakiyeye Aktarılan</span>
+                  <span className="font-crest font-black text-[#f6d36b] flex items-center gap-1">
+                    <Coins className="w-3.5 h-3.5 text-[#f2c94c]" />+
+                    {result.totalGoldAwarded.toLocaleString('tr-TR')}
+                  </span>
+                </div>
                 <div className="pt-1.5 border-t border-white/8 flex items-center justify-between text-xs">
-                  <span className="text-[#938c80]">Toplam Altın Kesesi</span>
+                  <span className="text-[#938c80]">Kalıcı Altın Kesesi</span>
                   <span className="font-bold text-[#d8c49a]">
                     {result.walletGold.toLocaleString('tr-TR')} Altın
                   </span>
@@ -580,12 +612,27 @@ export const GameModals: React.FC<GameModalsProps> = ({
                   {!result.isBossLevel && ` / ${result.scoreTarget.toLocaleString('tr-TR')}`}
                 </span>
               </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-[#aba395]">Kazanılan Altın</span>
+                <span className="font-crest font-bold text-[#9c9587]">0 Altın</span>
+              </div>
+              {result.lostTemporaryGold > 0 && (
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-[#c98b8b]">Kaybedilen Geçici Altın</span>
+                  <span className="font-bold text-[#e26d6d]">
+                    -{result.lostTemporaryGold.toLocaleString('tr-TR')} Altın
+                  </span>
+                </div>
+              )}
               <div className="pt-1.5 border-t border-white/8 flex items-center justify-between text-xs">
-                <span className="text-[#938c80]">Mevcut Altın Kesesi</span>
+                <span className="text-[#938c80]">Kalıcı Altın Kesesi</span>
                 <span className="font-bold text-[#d8c49a]">
                   {result.walletGold.toLocaleString('tr-TR')} Altın
                 </span>
               </div>
+              <p className="text-[11px] text-[#9b8d8d] leading-snug pt-0.5">
+                Bölüm tamamlanamadığı için bölüm içi geçici altınlar kalıcı bakiyeye aktarılmadı.
+              </p>
             </div>
 
             <div className="mt-4 flex flex-col gap-2.5">

@@ -207,14 +207,20 @@ export const GameHud: React.FC<GameHudProps> = ({
   const isEpicCombo = hud.combo >= 7;
   const isFireCombo = hud.combo >= 4;
   const isBossMode = hud.isBossLevel && hud.boss !== null;
+  const isVictoryCinematic = Boolean(hud.victoryCinematicActive);
+  const victoryFadeAlpha = Math.max(0, Math.min(1, hud.victoryFadeAlpha ?? 0));
 
   return (
     <div className="absolute inset-0 z-20 pointer-events-none select-none overflow-hidden flex flex-col justify-between">
       {/* TAM EKRAN EĞLENCELİ EFEKTLER (Tavuk Tüyleri, Mantar Sersemliği, Havai Fişek, Buz, Arılar vb.) */}
-      <ScreenFxOverlay effects={hud.screenEffects} />
+      {!isVictoryCinematic && <ScreenFxOverlay effects={hud.screenEffects} />}
 
       {/* ÜST DİKEY HUD BLOĞU */}
-      <div className="w-full px-3 pt-2.5 flex flex-col gap-2">
+      <div
+        className={`w-full px-3 pt-2.5 flex flex-col gap-2 transition-opacity duration-300 ${
+          isVictoryCinematic ? 'opacity-0 pointer-events-none' : 'opacity-100'
+        }`}
+      >
         {/* Satır 1: Dünya & Bölüm Adı + Altın Kesesi + Ses / Duraklat */}
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0">
@@ -230,18 +236,27 @@ export const GameHud: React.FC<GameHudProps> = ({
               <span className="text-sky-200/90 truncate max-w-[130px]">
                 D{hud.worldId} · {hud.worldName}
               </span>
-              <span className="flex items-center gap-1 text-yellow-300 shrink-0">
-                <Coins className="w-3.5 h-3.5 shrink-0" />
-                <span>{hud.walletGold.toLocaleString('tr-TR')}</span>
+              <span className="flex items-center gap-1.5 shrink-0">
+                <span className="flex items-center gap-1 text-yellow-300" title="Kalıcı Altın Kesesi">
+                  <Coins className="w-3.5 h-3.5 shrink-0" />
+                  <span>{hud.walletGold.toLocaleString('tr-TR')}</span>
+                </span>
                 {hud.levelGold > 0 && (
-                  <span className="text-emerald-300">(+{hud.levelGold.toLocaleString('tr-TR')})</span>
+                  <span
+                    className="px-1.5 py-0.5 rounded bg-emerald-950/85 border border-emerald-400/55 text-[10px] font-black text-emerald-300 leading-none"
+                    title="Bölüm içi geçici altın — bölüm tamamlandığında kalıcı bakiyeye aktarılır"
+                  >
+                    +{hud.levelGold.toLocaleString('tr-TR')} Geçici
+                  </span>
                 )}
               </span>
             </div>
           </div>
 
           <div
-            className="flex items-center gap-1.5 pointer-events-auto shrink-0"
+            className={`flex items-center gap-1.5 shrink-0 ${
+              isVictoryCinematic ? 'pointer-events-none' : 'pointer-events-auto'
+            }`}
             onPointerDown={(e) => e.stopPropagation()}
             onPointerUp={(e) => e.stopPropagation()}
           >
@@ -466,7 +481,7 @@ export const GameHud: React.FC<GameHudProps> = ({
         )}
 
         {/* Kota Tamamlandığında Hızlı Bitirme Butonu (Yalnızca Normal Bölümler) */}
-        {hud.quotaMet && !isBossMode && (
+        {hud.quotaMet && !isBossMode && !isVictoryCinematic && (
           <div className="flex items-center justify-center gap-2 pointer-events-auto">
             <span className="text-xs font-black text-emerald-300 hud-text-stroke-sm">
               HEDEF TAMAMLANDI!
@@ -596,20 +611,25 @@ export const GameHud: React.FC<GameHudProps> = ({
       ))}
 
       {/* ALT KONTROL BÖLGESİ: Boss Modunda Sanal Joystick + Zıpla + Saldır; Normal Bölümde Klasik Güç Göstergesi */}
-      {isBossMode ? (
-        <BossTouchControls
-          charge={hud.charge}
-          isCharging={hud.isCharging}
-          dizzyTimeLeft={hud.dizzyTimeLeft}
-          pigTimeLeft={hud.pigTimeLeft}
-          weaponName={hud.weaponName}
-          onBossMove={onBossMove}
-          onBossJump={onBossJump}
-          onAttackStart={onAttackStart}
-          onAttackRelease={onAttackRelease}
-        />
-      ) : (
-        <div className="w-full px-4 pb-4 pt-2 flex flex-col items-center gap-1.5 bg-gradient-to-t from-black/75 via-black/35 to-transparent">
+      <div
+        className={`w-full transition-opacity duration-300 ${
+          isVictoryCinematic ? 'opacity-0 pointer-events-none' : 'opacity-100'
+        }`}
+      >
+        {isBossMode ? (
+          <BossTouchControls
+            charge={hud.charge}
+            isCharging={hud.isCharging}
+            dizzyTimeLeft={hud.dizzyTimeLeft}
+            pigTimeLeft={hud.pigTimeLeft}
+            weaponName={hud.weaponName}
+            onBossMove={onBossMove}
+            onBossJump={onBossJump}
+            onAttackStart={onAttackStart}
+            onAttackRelease={onAttackRelease}
+          />
+        ) : (
+          <div className="w-full px-4 pb-4 pt-2 flex flex-col items-center gap-1.5 bg-gradient-to-t from-black/75 via-black/35 to-transparent">
           <div className="flex items-center gap-2 text-xs font-black hud-text-stroke-sm">
             <span
               className={
@@ -656,8 +676,18 @@ export const GameHud: React.FC<GameHudProps> = ({
                     : hud.isCharging
                       ? 'GÜÇ TOPLANIYOR... HEDEF YAKLAŞINCA BIRAK!'
                       : 'BASILI TUT: GÜÇ TOPLA · BIRAK: VUR'}
+            </div>
           </div>
-        </div>
+        )}
+      </div>
+
+      {/* 3 saniyelik bölüm tamamlama sinematik kararma perdesi (mobil performans dostu saf opacity) */}
+      {(isVictoryCinematic || victoryFadeAlpha > 0.001) && (
+        <div
+          className="absolute inset-0 z-40 bg-black pointer-events-auto"
+          style={{ opacity: victoryFadeAlpha }}
+          aria-hidden="true"
+        />
       )}
     </div>
   );

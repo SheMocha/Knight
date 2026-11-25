@@ -272,7 +272,10 @@ export interface LevelConfig {
   levelScoreScale: number; // Bölümün düşman yoğunluğu ve süresine göre kalibre puan ölçeği
   timeLimit: number; // saniye
   scrollSpeed: number; // kayma hızı
-  goldScale: number; // bölüm temel altın ölçeği (skordan tamamen bağımsız)
+  goldScale: number; // bölüm kalibre altın ölçeği (skordan tamamen bağımsız)
+  expectedLevelGold: number; // bölüm içi beklenen geçici altın kazancı
+  maxInLevelGold: number; // bölüm içi geçici altın üst tavanı
+  completionBonusGold: number; // yalnızca bölüm başarıyla tamamlandığında eklenen bonus altın
   spawnInterval: number; // hedeflerin geliş sıklığı
   witchChance: number; // cadı çıkma olasılığı
   specialObjectChance: number; // etkileşimli özel obje olasılığı
@@ -316,8 +319,10 @@ export interface HudSnapshot {
   activeEventBanner: string | null;
   equippedWeapon: WeaponId;
   weaponName: string;
-  levelGold: number; // Sadece bu bölümde yerden toplanan altın (skordan bağımsız)
-  walletGold: number; // Mağazada harcanabilir toplam biriken altın
+  levelGold: number; // Yalnızca bu bölümün GEÇİCİ altın bakiyesi (bölüm bitmeden kalıcı bakiyeye eklenmez)
+  walletGold: number; // Oyuncunun KALICI altın bakiyesi (bölüm oynanırken artmaz)
+  maxInLevelGold?: number; // Bu bölümde toplanabilecek geçici altın üst tavanı
+  completionBonusGold?: number; // Başarılı tamamlamada eklenecek bölüm bonusu
   goldBags: number;
   levelScore: number; // Sadece bu bölümün vuruş skoru (her bölümde 0'dan başlar)
   scoreTarget: number; // Bu bölümü geçmek için gereken skor hedefi
@@ -342,6 +347,8 @@ export interface HudSnapshot {
   activeBonusBanner: BonusBanner | null;
   screenEffects: ScreenEffectState[];
   quotaMet: boolean;
+  victoryCinematicActive?: boolean;
+  victoryFadeAlpha?: number;
 }
 
 export interface LevelResult {
@@ -350,8 +357,12 @@ export interface LevelResult {
   worldId: number;
   worldName: string;
   levelName: string;
-  levelGold: number; // Bu bölümde yerden toplanan altın
-  walletGold: number; // Mağazada harcanabilir toplam altın
+  levelGold: number; // Başarıda aktarılan bölüm içi toplanan altın (başarısızlıkta 0)
+  completionBonusGold: number; // Yalnızca başarıda eklenen bölüm tamamlama altın bonusu (başarısızlıkta 0)
+  totalGoldAwarded: number; // Kalıcı bakiyeye tek işlemde aktarılan toplam altın (levelGold + completionBonusGold)
+  lostTemporaryGold: number; // Başarısızlıkta silinen geçici bölüm altını (başarıda 0)
+  alreadySettled?: boolean; // Aynı bölüm ödülü ikinci kez tetiklenirse true
+  walletGold: number; // İşlem sonrası kalıcı oyuncu altın bakiyesi
   goldBags: number;
   timeRemaining: number;
   levelScore: number; // Bu bölümün skoru
@@ -379,6 +390,7 @@ export interface SaveData {
   bestScores: Record<number, number>;
   bestGold: Record<number, number>;
   walletGold: number;
+  settledRunIds?: string[]; // Aynı bölüm ödülünün ikinci kez kalıcı bakiyeye aktarılmasını engelleyen koruma
   upgrades: PlayerUpgrades;
   soundEnabled: boolean;
   tutorialCompleted: boolean;

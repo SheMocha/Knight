@@ -70,12 +70,13 @@ export const AD_FREQUENCY_CONFIG = {
   /** İki ödüllü reklam arası minimum bekleme süresi (saniye) */
   rewardedCooldownSec: 20,
 
-  /** Ödüllü reklam yerleşimlerine göre gerçek oyun ekonomisi altın ödülleri */
+  /** Ödüllü reklam yerleşimlerine göre dengeli ve üst tavanlı kalıcı altın ödülleri */
   rewardedGold: {
-    extra_gold_shop: 120,
-    daily_bonus: 200,
-    level_clear_bonus_min: 75,
-    level_clear_bonus_ratio: 0.5,
+    extra_gold_shop: 100,
+    daily_bonus: 150,
+    level_clear_bonus_min: 50,
+    level_clear_bonus_max: 300,
+    level_clear_bonus_ratio: 0.35,
   },
 
   /**

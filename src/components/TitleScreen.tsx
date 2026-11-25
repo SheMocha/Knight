@@ -384,8 +384,11 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                 </p>
                 <p>
                   <strong className="text-emerald-300">Skor ve Altın Ayrıdır:</strong> Bölüm Skoru
-                  bölümü geçmek içindir; sikkeler doğrudan <strong>Altın Kesene</strong> gider ve
-                  yalnızca <strong>Mağaza</strong> alışverişlerinde kullanılır.
+                  bölümü geçmek içindir. Bölümde topladığın altınlar{' '}
+                  <strong>geçici bakiyede</strong> birikir ve bölümü{' '}
+                  <strong>başarıyla tamamladığında</strong> bölüm bonusu ile birlikte kalıcı{' '}
+                  <strong>Altın Kesene</strong> aktarılır; başarısız olursan geçici altınlar
+                  kaybedilir.
                 </p>
               </div>
               {/* İsteğe Bağlı Günlük Bonus (Ödüllü Reklam) & Google UMP Gizlilik Tercihleri */}

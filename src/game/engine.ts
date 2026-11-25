@@ -38,10 +38,16 @@ import {
   createInitialUpgrades,
   getChargeRate,
   getDizzyDuration,
-  getGoldMultiplier,
   getWeaponSpec,
 } from './shop';
 import { createBridgeStoneWallTexture } from './textures';
+import {
+  getBreakableBaseGold,
+  getEnemyBaseGold,
+  getSpecialNpcBaseGold,
+  GoldEconomyManager,
+  SELF_DISTRIBUTING_GOLD_BREAKABLES,
+} from './goldEconomy';
 import { getEnemyBasePoints, ScoreAddResult, ScoreManager } from './scoreManager';
 import { BossController, disposeBossTextureCache } from './BossSystem';
 import {
@@ -55,6 +61,11 @@ import {
   getSpecialNpcSpec,
 } from './SpecialNpcs';
 import { getWorldConfig, TOTAL_LEVELS } from './worlds';
+import {
+  VICTORY_CINEMATIC_FAILSAFE_MS,
+  VictoryCinematicController,
+  VictoryCinematicFrame,
+} from './victoryCinematic';
 import {
   BonusBanner,
   BonusKind,
@@ -354,11 +365,13 @@ export class BlackKnightEngine {
   private getMedievalFlashTimer = 0;
 
   // Economy & Score:
-  // - levelGold & levelScore ALWAYS reset to 0 on every new level / new game!
-  // - walletGold is the player's spendable gold purse for Ye Olde Weapon Shoppe.
-  private levelGold = 0;
-  private walletGold = 0;
+  // - permanentWalletGold: Oyuncunun KALICI altın bakiyesi (bölüm oynanırken ASLA artırılmaz).
+  // - goldEconomy: Bölüm içi GEÇİCİ altın bakiyesini, tekil ödül tahsislerini ve aktarımını yönetir.
+  private permanentWalletGold = 0;
+  private readonly goldEconomy = new GoldEconomyManager();
   private goldBags = 0;
+  private goldRainEventSeq = 0;
+  private bossHitSeq = 0;
   private readonly scoreManager = new ScoreManager();
   private maxScoreAnnounced = false;
   private swingSeq = 0;
@@ -419,6 +432,32 @@ export class BlackKnightEngine {
   private hitstopTimer = 0;
   private hudEmitAccum = 0;
 
+  // Sahne ışık referansları (sinematik kararma & temiz sıfırlama için)
+  private hemiLight!: THREE.HemisphereLight;
+  private keyLight!: THREE.DirectionalLight;
+  private rimLight!: THREE.DirectionalLight;
+  private readonly baseHemiIntensity = 1.05;
+  private readonly baseKeyIntensity = 1.75;
+  private readonly baseRimIntensity = 0.78;
+  private readonly baseExposure = 1.04;
+
+  // 3 saniyelik bölüm tamamlama sinematik final animasyonu durumu
+  private readonly victoryCinematic = new VictoryCinematicController();
+  private victoryFailsafeTimerId: number | null = null;
+  private victoryStartWallMs = 0;
+  private victoryFadeAlpha = 0;
+  private victoryEnvDim = 0;
+  private pendingVictoryResult: LevelResult | null = null;
+  private pendingVictoryEmitted = false;
+  private cinematicSceneDimTargets: Array<{
+    mat: THREE.MeshBasicMaterial;
+    baseColor: THREE.Color;
+    baseOpacity: number;
+  }> = [];
+  private cinematicBaseBgColor: THREE.Color | null = null;
+  private cinematicBaseFogColor: THREE.Color | null = null;
+  private readonly cinematicBlackColor = new THREE.Color(0x000000);
+
   private onResizeBound: () => void;
   private onContextLostBound: (e: Event) => void;
   private onContextRestoredBound: () => void;
@@ -460,24 +499,24 @@ export class BlackKnightEngine {
     this.renderer.setSize(width, height, false);
 
     // Karanlık fantastik ay ışığı + sıcak fener ışık dengesi
-    const hemi = new THREE.HemisphereLight(0xa8c8f0, 0x222938, 1.05);
-    this.scene.add(hemi);
+    this.hemiLight = new THREE.HemisphereLight(0xa8c8f0, 0x222938, this.baseHemiIntensity);
+    this.scene.add(this.hemiLight);
 
-    const keyLight = new THREE.DirectionalLight(0xe8f0ff, 1.75);
-    keyLight.position.set(12, 24, 18);
-    keyLight.castShadow = !this.isSoftwareGl;
-    keyLight.shadow.mapSize.set(1024, 1024);
-    keyLight.shadow.camera.left = -18;
-    keyLight.shadow.camera.right = 18;
-    keyLight.shadow.camera.top = 12;
-    keyLight.shadow.camera.bottom = -12;
-    keyLight.shadow.bias = -0.0005;
-    keyLight.shadow.normalBias = 0.02;
-    this.scene.add(keyLight);
+    this.keyLight = new THREE.DirectionalLight(0xe8f0ff, this.baseKeyIntensity);
+    this.keyLight.position.set(12, 24, 18);
+    this.keyLight.castShadow = !this.isSoftwareGl;
+    this.keyLight.shadow.mapSize.set(1024, 1024);
+    this.keyLight.shadow.camera.left = -18;
+    this.keyLight.shadow.camera.right = 18;
+    this.keyLight.shadow.camera.top = 12;
+    this.keyLight.shadow.camera.bottom = -12;
+    this.keyLight.shadow.bias = -0.0005;
+    this.keyLight.shadow.normalBias = 0.02;
+    this.scene.add(this.keyLight);
 
-    const rimLight = new THREE.DirectionalLight(0xffb36b, 0.78);
-    rimLight.position.set(-14, 10, -10);
-    this.scene.add(rimLight);
+    this.rimLight = new THREE.DirectionalLight(0xffb36b, this.baseRimIntensity);
+    this.rimLight.position.set(-14, 10, -10);
+    this.scene.add(this.rimLight);
 
     this.mats = createMaterialBank(this.maxAnisotropy);
     this.scene.add(this.worldGroup);
@@ -679,9 +718,15 @@ export class BlackKnightEngine {
   }
 
   public setScreen(screen: GameScreen): void {
+    // Sinematik final oynarken duraklatma ekranına geçişi engelle
+    if (this.victoryCinematic.isActive() && screen === 'PAUSED') {
+      return;
+    }
     this.screen = screen;
     if (screen === 'PLAYING' || screen === 'TUTORIAL') {
-      audioEngine.startMusic();
+      if (!this.victoryCinematic.isActive()) {
+        audioEngine.startMusic();
+      }
     } else {
       this.isCharging = false;
       this.moveInput = 0;
@@ -694,7 +739,7 @@ export class BlackKnightEngine {
       ...upgrades,
       ownedWeapons: [...upgrades.ownedWeapons],
     };
-    this.walletGold = walletGold;
+    this.permanentWalletGold = Math.max(0, Math.floor(walletGold));
     this.knight.setWeapon(this.upgrades.equippedWeapon);
     this.emitHud();
   }
@@ -749,6 +794,11 @@ export class BlackKnightEngine {
   }
 
   public setMoveInput(dir: -1 | 0 | 1): void {
+    if (this.levelEnding || this.victoryCinematic.isActive()) {
+      this.moveInput = 0;
+      this.bossMoveInput = 0;
+      return;
+    }
     // Normal bölümlerde hareket YOKTUR; yalnızca Boss bölümlerinde veya Eğitim Aşama 6'da aktiftir!
     if (this.screen === 'PLAYING' && this.level.isBossLevel) {
       this.bossMoveInput = dir;
@@ -763,6 +813,10 @@ export class BlackKnightEngine {
   }
 
   public setBossMoveInput(vx: number): void {
+    if (this.levelEnding || this.victoryCinematic.isActive()) {
+      this.bossMoveInput = 0;
+      return;
+    }
     if (this.screen === 'PLAYING' && this.level.isBossLevel) {
       this.bossMoveInput = Math.max(-1, Math.min(1, vx));
     } else {
@@ -776,7 +830,8 @@ export class BlackKnightEngine {
       !this.level.isBossLevel ||
       !this.bossGrounded ||
       this.pigTimer > 0 ||
-      this.levelEnding
+      this.levelEnding ||
+      this.victoryCinematic.isActive()
     ) {
       return;
     }
@@ -820,7 +875,7 @@ export class BlackKnightEngine {
       ) {
         return;
       }
-    } else if (this.screen !== 'PLAYING' || this.levelEnding) {
+    } else if (this.screen !== 'PLAYING' || this.levelEnding || this.victoryCinematic.isActive()) {
       return;
     }
 
@@ -839,7 +894,7 @@ export class BlackKnightEngine {
 
   public releaseSmash(): void {
     const canAttack =
-      (this.screen === 'PLAYING' && !this.levelEnding) ||
+      (this.screen === 'PLAYING' && !this.levelEnding && !this.victoryCinematic.isActive()) ||
       (this.screen === 'TUTORIAL' &&
         this.tutorialStage !== 6 &&
         this.tutorialStage !== 8 &&
@@ -875,7 +930,7 @@ export class BlackKnightEngine {
   }
 
   public finishRoundEarlyIfQuotaMet(): void {
-    if (this.screen !== 'PLAYING' || this.levelEnding) return;
+    if (this.screen !== 'PLAYING' || this.levelEnding || this.victoryCinematic.isActive()) return;
     if (this.scoreManager.isTargetMet()) {
       this.finishLevel(true);
     }
@@ -900,6 +955,7 @@ export class BlackKnightEngine {
     currentWalletGold: number,
     upgrades: PlayerUpgrades,
   ): void {
+    this.resetVictoryCinematicAndLighting();
     this.level = getLevelConfig(levelId);
     this.screen = targetScreen;
     this.upgrades = { ...upgrades, ownedWeapons: [...upgrades.ownedWeapons] };
@@ -992,19 +1048,25 @@ export class BlackKnightEngine {
     this.knight.setWeapon(this.upgrades.equippedWeapon);
     this.knight.resetPose(this.anchorX, GROUND_Y);
 
-    // CRITICAL FIX: Every new level/game strictly resets levelGold & ScoreManager to 0!
-    // Spendable walletGold carries over for Ye Olde Weapon Shoppe.
-    this.levelGold = 0;
+    // Her yeni bölümde veya yeniden başlatmada geçici altın ve skor kesinlikle 0'lanır;
+    // kalıcı bakiye (permanentWalletGold) yalnızca SaveData'dan okunur ve bölüm içinde değişmez!
     this.scoreManager.reset(this.level);
     this.maxScoreAnnounced = false;
     this.swingSeq = 0;
-    this.walletGold = currentWalletGold;
+    this.goldRainEventSeq = 0;
+    this.bossHitSeq = 0;
+    this.permanentWalletGold = Math.max(0, Math.floor(currentWalletGold));
     this.goldBags = 0;
     this.timeLeft = this.level.timeLimit;
     this.combo = 0;
     this.comboTimer = 0;
     this.roundSeq += 1;
     this.currentRunId = `run_${this.level.id}_${Date.now()}_${this.roundSeq}`;
+    if (targetScreen === 'PLAYING') {
+      this.goldEconomy.beginLevelSession(this.currentRunId, this.level);
+    } else {
+      this.goldEconomy.resetSession();
+    }
     this.roundSwings = 0;
     this.roundHits = 0;
     this.roundMistakes = 0;
@@ -1394,7 +1456,7 @@ export class BlackKnightEngine {
         rotZ: 0,
         rotSpeed: 0,
         width: spec.width * 0.78,
-        baseGold: Math.round(spec.bonusGold * lvl.goldScale),
+        baseGold: getSpecialNpcBaseGold(npcKind),
         basePoints: spec.bonusPoints,
         extraSpeed: (spec.speedMult - 1) * 2.2,
         animTime: Math.random() * 6,
@@ -1487,13 +1549,6 @@ export class BlackKnightEngine {
         }
       }
 
-      const baseGoldMap: Record<EnemyKind, number> = {
-        villager: 8,
-        merchant: 15,
-        guard: 18,
-        witch: 0,
-      };
-
       const zLayouts: Record<number, number[]> = {
         1: [0],
         2: [-0.24, 0.24],
@@ -1528,7 +1583,7 @@ export class BlackKnightEngine {
           rotZ: isSprinter ? 0.14 : 0,
           rotSpeed: 0,
           width: 1.15,
-          baseGold: Math.round(baseGoldMap[kind] * lvl.goldScale),
+          baseGold: getEnemyBaseGold(kind, isSprinter),
           basePoints: getEnemyBasePoints(kind, isSprinter),
           extraSpeed: Math.max(0.35, baseWalkExtra + sprintBonus),
           animTime: Math.random() * 6,
@@ -1574,7 +1629,7 @@ export class BlackKnightEngine {
         rotZ: 0,
         rotSpeed: 0,
         width: spec.width * 1.15,
-        baseGold: Math.round(spec.baseGold * lvl.goldScale),
+        baseGold: getBreakableBaseGold(kind),
         basePoints: spec.basePoints,
         extraSpeed: 0,
         animTime: Math.random() * 6,
@@ -1613,7 +1668,7 @@ export class BlackKnightEngine {
       rotZ: 0,
       rotSpeed: 0,
       width: spec.width * 1.15,
-      baseGold: Math.round(spec.baseGold * this.level.goldScale),
+      baseGold: getBreakableBaseGold(kind),
       basePoints: spec.basePoints,
       extraSpeed: 0,
       animTime: Math.random() * 6,
@@ -1629,7 +1684,9 @@ export class BlackKnightEngine {
   }
 
   private burstCoins(x: number, y: number, totalGold: number, bags: number): void {
-    let remaining = Math.max(4, Math.round(totalGold));
+    const clamped = Math.round(totalGold);
+    if (clamped <= 0) return;
+    let remaining = clamped;
 
     // Altın kesesi yalnızca toplam ganimet yeterliyse payından düşülerek atılır (asla ekstra altın uydurmaz)
     for (let i = 0; i < bags; i++) {
@@ -1831,7 +1888,9 @@ export class BlackKnightEngine {
     this.lastTimestamp = now;
     const dt = Math.min(Math.max(rawDt, 0.001), 0.05);
 
-    if (this.screen === 'TITLE') {
+    if (this.victoryCinematic.isActive()) {
+      this.updateVictoryCinematic(rawDt);
+    } else if (this.screen === 'TITLE') {
       this.updateTitleAttract(dt);
     } else if (this.screen === 'PLAYING') {
       this.updateGameplay(dt);
@@ -1875,6 +1934,7 @@ export class BlackKnightEngine {
       flame.scale.set(1 + (pulse - 1) * 0.4, pulse, 1);
     }
 
+    const envLightScale = Math.max(0, 1 - this.victoryEnvDim);
     for (let i = 0; i < this.lanternGlows.length; i++) {
       const glow = this.lanternGlows[i];
       const flicker =
@@ -1882,13 +1942,13 @@ export class BlackKnightEngine {
         Math.sin(this.elapsed * 7.5 + i * 1.9) * 0.1 +
         Math.cos(this.elapsed * 15.2 + i * 2.7) * 0.05;
       glow.scale.setScalar(0.95 + (flicker - 0.56) * 0.8);
-      (glow.material as THREE.MeshBasicMaterial).opacity = flicker;
+      (glow.material as THREE.MeshBasicMaterial).opacity = flicker * envLightScale;
     }
 
     for (let i = 0; i < this.lightShafts.length; i++) {
       const shaft = this.lightShafts[i];
       const shimmer = 0.3 + Math.sin(this.elapsed * 1.6 + i * 1.4) * 0.09;
-      (shaft.material as THREE.MeshBasicMaterial).opacity = shimmer;
+      (shaft.material as THREE.MeshBasicMaterial).opacity = shimmer * envLightScale;
     }
 
     for (const item of this.parallaxItems) {
@@ -2136,41 +2196,7 @@ export class BlackKnightEngine {
           this.camShake = Math.max(this.camShake, 0.35);
         },
         onBossDefeated: (bx, by) => {
-          audioEngine.playBossVictory();
-          this.camShake = 0.9;
-          this.spawnParticles(bx, by, 34, 0xfacc15, 11);
-          this.spawnParticles(bx, by + 0.5, 22, 0xf97316, 10);
-          this.spawnStarburst(bx, by, 2.2);
-          if (this.level.boss) {
-            this.handleScoreResult(
-              this.scoreManager.addBossDefeatScore(
-                this.level.boss.rewardScore,
-                this.level.boss.id,
-              ),
-            );
-            this.levelGold += this.level.boss.rewardGold;
-            this.walletGold += this.level.boss.rewardGold;
-            this.callbacks.onAchievementEvent?.({
-              type: 'boss_defeated',
-              bossId: this.level.boss.id,
-              eventKey: `boss_${this.currentRunId}_${this.level.boss.id}`,
-            });
-            this.callbacks.onAchievementEvent?.({
-              type: 'gold_earned',
-              amount: this.level.boss.rewardGold,
-              eventKey: `boss_gold_${this.currentRunId}`,
-            });
-            this.burstCoins(bx, by, 90, 2);
-            this.spawnPopup(
-              bx,
-              3.5,
-              `${this.level.boss.name.toUpperCase()} YENİLDİ!`,
-              '#4ade80',
-              1.48,
-            );
-          }
-          this.bossVictoryDelay = 1.35;
-          this.emitHud();
+          this.handleBossDefeated(bx, by);
         },
       });
       this.updatePickups(dt);
@@ -2204,16 +2230,26 @@ export class BlackKnightEngine {
         if (this.level.levelEvent === 'gold_rain') {
           this.activeEventBanner = '✨ ALTIN YAĞMURU BAŞLADI!';
           this.eventBannerTimer = 2.4;
-          for (let i = 0; i < 6; i++) {
-            this.spawnPickup(
-              this.getKnightX() + 1.8 + i * 0.9,
-              6.2 + i * 0.4,
-              -1.2,
-              -2.5,
-              Math.round(8 * this.level.goldScale),
-              false,
-              0.2,
-            );
+          this.goldRainEventSeq += 1;
+          const rainTotal = this.goldEconomy.allocateGoldRainEventGold(this.goldRainEventSeq);
+          if (rainTotal > 0) {
+            const count = 6;
+            const baseVal = Math.floor(rainTotal / count);
+            let rem = rainTotal - baseVal * count;
+            for (let i = 0; i < count; i++) {
+              const val = baseVal + (rem > 0 ? 1 : 0);
+              if (rem > 0) rem--;
+              if (val <= 0) continue;
+              this.spawnPickup(
+                this.getKnightX() + 1.8 + i * 0.9,
+                6.2 + i * 0.4,
+                -1.2,
+                -2.5,
+                val,
+                false,
+                0.2,
+              );
+            }
           }
         } else if (this.level.levelEvent === 'tnt_chain') {
           this.activeEventBanner = '💥 PATLAYICI DALGA! TNT GELİYOR!';
@@ -2486,7 +2522,15 @@ export class BlackKnightEngine {
 
         this.spawnStarburst(hitX, 1.5, isCrit ? 1.65 : 1.15);
         this.spawnParticles(hitX, 1.45, isCrit ? 18 : 10, isCrit ? 0xfacc15 : 0xf97316, 9.5);
-        this.burstCoins(hitX, 1.0, Math.round(14 * this.level.goldScale), 0);
+        this.bossHitSeq += 1;
+        const bossHitGold = this.goldEconomy.allocateBossHitGold(
+          this.bossHitSeq,
+          this.upgrades,
+          isCrit,
+        );
+        if (bossHitGold > 0) {
+          this.burstCoins(hitX, 1.0, bossHitGold, 0);
+        }
         this.handleScoreResult(
           this.scoreManager.addBossHitScore(damage, this.level.boss?.rewardScore ?? 0),
         );
@@ -2502,40 +2546,7 @@ export class BlackKnightEngine {
           onBossPopup: (text, x, y, color, scale = 1.25) => this.spawnPopup(x, y, text, color, scale),
           onBossRoar: () => audioEngine.playBossRoar(),
           onBossDefeated: (bx, by) => {
-            audioEngine.playBossVictory();
-            this.camShake = 0.9;
-            this.spawnParticles(bx, by, 34, 0xfacc15, 11);
-            this.spawnParticles(bx, by + 0.5, 22, 0xf97316, 10);
-            this.spawnStarburst(bx, by, 2.2);
-            if (this.level.boss) {
-              this.handleScoreResult(
-                this.scoreManager.addBossDefeatScore(
-                  this.level.boss.rewardScore,
-                  this.level.boss.id,
-                ),
-              );
-              this.levelGold += this.level.boss.rewardGold;
-              this.walletGold += this.level.boss.rewardGold;
-              this.callbacks.onAchievementEvent?.({
-                type: 'boss_defeated',
-                bossId: this.level.boss.id,
-                eventKey: `boss_${this.currentRunId}_${this.level.boss.id}`,
-              });
-              this.callbacks.onAchievementEvent?.({
-                type: 'gold_earned',
-                amount: this.level.boss.rewardGold,
-                eventKey: `boss_gold_${this.currentRunId}`,
-              });
-              this.burstCoins(bx, by, 90, 2);
-              this.spawnPopup(
-                bx,
-                3.5,
-                `${this.level.boss.name.toUpperCase()} YENİLDİ!`,
-                '#4ade80',
-                1.48,
-              );
-            }
-            this.bossVictoryDelay = 1.35;
+            this.handleBossDefeated(bx, by);
           },
         });
         this.emitHud();
@@ -2693,9 +2704,7 @@ export class BlackKnightEngine {
       this.roundHits += 1;
     }
 
-    // Geçerli hedef vuruldu! SKOR (merkezi ScoreManager) ve ALTIN (düşen sikkeler) tamamen ayrıdır:
-    const goldMult = getGoldMultiplier(this.upgrades);
-    const goldPowerScale = isCrit ? 1.25 : 0.75 + this.swingPower * 0.25;
+    // Geçerli hedef vuruldu! SKOR (merkezi ScoreManager) ve ALTIN (merkezi GoldEconomyManager) tamamen ayrıdır:
     const doubleScoreActive = !this.isTutorialMode && this.doubleScoreTimer > 0;
     this.swingSeq += 1;
 
@@ -2741,13 +2750,19 @@ export class BlackKnightEngine {
           this.handleScoreResult(npcScoreRes);
           earnedScore = npcScoreRes.added;
         }
-        const goldPayout = this.isTutorialMode
-          ? 150
-          : Math.max(12, Math.round(t.baseGold * goldMult));
-
         if (t.specialNpcKind === 'gold_merchant') {
+          const goldPayout = this.isTutorialMode
+            ? 150
+            : this.goldEconomy.allocateSpecialNpcGold(
+                t.id,
+                'gold_merchant',
+                this.upgrades,
+                isCrit,
+              );
           audioEngine.playGoldBag();
-          this.burstCoins(t.x, 0.9, goldPayout, this.isTutorialMode ? 3 : 2);
+          if (goldPayout > 0) {
+            this.burstCoins(t.x, 0.9, goldPayout, this.isTutorialMode ? 3 : 2);
+          }
           this.spawnParticles(t.x, 1.3, this.isTutorialMode ? 24 : 16, 0xfacc15, 9.5);
           if (!this.isTutorialMode) {
             this.triggerScreenEffect('gold_confetti', 2.3);
@@ -2757,15 +2772,22 @@ export class BlackKnightEngine {
           this.spawnPopup(
             t.x,
             2.5,
-            this.isTutorialMode
-              ? `ALTIN TÜCCARI! +${goldPayout} ALTIN YAĞDI!`
-              : `ALTIN TÜCCARI! +${goldPayout} ALTIN!`,
+            goldPayout > 0
+              ? this.isTutorialMode
+                ? `ALTIN TÜCCARI! +${goldPayout} ALTIN YAĞDI!`
+                : `ALTIN TÜCCARI! +${goldPayout} ALTIN!`
+              : 'ALTIN TÜCCARI!',
             '#fde047',
             1.35,
           );
         } else if (t.specialNpcKind === 'chicken') {
+          const goldPayout = this.isTutorialMode
+            ? 30
+            : this.goldEconomy.allocateSpecialNpcGold(t.id, 'chicken', this.upgrades, isCrit);
           audioEngine.playChickenSquawk();
-          this.burstCoins(t.x, 0.8, goldPayout, 0);
+          if (goldPayout > 0) {
+            this.burstCoins(t.x, 0.8, goldPayout, 0);
+          }
           for (let f = 0; f < 10; f++) {
             this.spawnInteractiveFx('feather', t.x, 1.1);
           }
@@ -2775,13 +2797,18 @@ export class BlackKnightEngine {
             earnedScore > 0 ? `GIDAAAK! TÜYLER UÇUŞTU! +${earnedScore}` : 'GIDAAAK! TÜYLER UÇUŞTU!';
           this.spawnPopup(t.x, 2.3, chickenTxt, '#fb923c', 1.3);
         } else {
-          // Gezgin: %50 sürpriz Bonus, %50 komik tepki + altın
+          // Gezgin: %50 sürpriz Bonus, %50 komik tepki + altın (çift ödül yok)
           audioEngine.playBonk();
           if (Math.random() < 0.5) {
             this.spawnBonus(t.x + 0.3, 1.2, undefined, true);
             this.spawnPopup(t.x, 2.4, `GEZGİN SÜRPRİZİ! BONUS!`, '#38bdf8', 1.28);
           } else {
-            this.burstCoins(t.x, 0.8, goldPayout, 1);
+            const goldPayout = this.isTutorialMode
+              ? 40
+              : this.goldEconomy.allocateSpecialNpcGold(t.id, 'traveler', this.upgrades, isCrit);
+            if (goldPayout > 0) {
+              this.burstCoins(t.x, 0.8, goldPayout, 1);
+            }
             const travTxt =
               earnedScore > 0 ? `HEY! ŞAPKAM UÇTU! +${earnedScore}` : 'HEY! ŞAPKAM UÇTU!';
             this.spawnPopup(t.x, 2.4, travTxt, '#7dd3fc', 1.22);
@@ -2817,7 +2844,10 @@ export class BlackKnightEngine {
         this.combo += 1;
         this.comboTimer = COMBO_DECAY_DURATION;
         audioEngine.playSmash('metal');
-        this.burstCoins(t.x, 0.9, Math.round(18 * this.level.goldScale), 0);
+        const chipGold = this.goldEconomy.allocateBreakableChipGold(t.id, t.hitsTaken);
+        if (chipGold > 0) {
+          this.burstCoins(t.x, 0.9, chipGold, 0);
+        }
         this.spawnParticles(t.x, 1.1, 10, 0xfacc15, 7.5);
         this.spawnStarburst(t.x, 1.15, 1.0);
         this.spawnPopup(t.x, 2.2, `ALTIN HEYKEL! (${remainingHits} VURUŞ KALDI)`, '#fde047', 1.18);
@@ -2900,8 +2930,7 @@ export class BlackKnightEngine {
         earnedScore = scoreRes.added;
       }
 
-      // 2) ALTIN: fiziksel sikkeler olarak ileriye saçılır, şövalye toplayınca altın kesesine eklenir
-      const goldPayout = Math.max(4, Math.round(t.baseGold * goldPowerScale * goldMult));
+      // 2) ALTIN: Merkezi GoldEconomyManager üzerinden tekil tahsis (kombo/skor bonuslarından bağımsız)
       const bags =
         t.breakableKind === 'chest' ||
         t.breakableKind === 'special_treasure' ||
@@ -2912,10 +2941,35 @@ export class BlackKnightEngine {
           ? 1
           : 0;
 
-      if (!this.isTutorialMode) {
-        this.burstCoins(t.x, 0.7, goldPayout, bags);
-      } else {
+      if (this.isTutorialMode) {
         this.burstCoins(t.x, 0.7, 16, 0);
+      } else if (t.category === 'character' && t.enemyKind) {
+        const goldPayout = this.goldEconomy.allocateEnemyGold(
+          t.id,
+          t.enemyKind,
+          t.isSprinter,
+          this.upgrades,
+          isCrit,
+        );
+        if (goldPayout > 0) {
+          this.burstCoins(t.x, 0.7, goldPayout, bags);
+        }
+      } else if (
+        t.category === 'breakable' &&
+        t.breakableKind &&
+        !SELF_DISTRIBUTING_GOLD_BREAKABLES.has(t.breakableKind)
+      ) {
+        // Kendi altın yağmurunu dağıtan özel nesneler (balon, heykel, kabak, korsan fıçısı)
+        // burada dağıtılmaz; yalnızca etkileşimli efekt içinden TEK KEZ dağıtılır.
+        const goldPayout = this.goldEconomy.allocateBreakableGold(
+          t.id,
+          t.breakableKind,
+          this.upgrades,
+          isCrit,
+        );
+        if (goldPayout > 0) {
+          this.burstCoins(t.x, 0.7, goldPayout, bags);
+        }
       }
       this.spawnStarburst(
         t.x,
@@ -2967,7 +3021,13 @@ export class BlackKnightEngine {
           this.spawnPopup(t.x, 2.55, '🍄 ZEHİRLİ MANTAR! 3sn SERSEM!', '#e879f9', 1.32);
         } else if (!this.isTutorialMode && bSpec.effect !== 'none') {
           // 13 ÖZEL ETKİLEŞİMLİ NESNE MEKANİKLERİ!
-          this.triggerInteractiveBreakableEffect(t.x, 0.92 + bSpec.floatY, t.breakableKind, t.id);
+          this.triggerInteractiveBreakableEffect(
+            t.x,
+            0.92 + bSpec.floatY,
+            t.breakableKind,
+            t.id,
+            isCrit,
+          );
         } else if (!this.isTutorialMode && Math.random() < bSpec.bonusDropChance) {
           this.spawnBonus(t.x + 0.2, 1.0, undefined, true);
         }
@@ -3191,6 +3251,7 @@ export class BlackKnightEngine {
     y: number,
     kind: BreakableKind,
     sourceEntityId: number,
+    isCrit = false,
   ): void {
     const spec = getBreakableSpec(kind);
     switch (spec.effect) {
@@ -3215,7 +3276,15 @@ export class BlackKnightEngine {
             this.handleScoreResult(
               this.scoreManager.addTntBlastTargetScore(other.basePoints, other.id),
             );
-            this.burstCoins(other.x, 0.75, Math.max(8, other.baseGold), 0);
+            // Zincirleme patlamalarda her nesnenin altın ödülü yalnızca BİR KEZ hesaplanır
+            const blastGold = this.goldEconomy.allocateTntBlastGold(other.id, {
+              enemyKind: other.enemyKind,
+              breakableKind: other.breakableKind,
+              isSprinter: other.isSprinter,
+            });
+            if (blastGold > 0) {
+              this.burstCoins(other.x, 0.75, blastGold, 0);
+            }
             if (other.category === 'breakable' && other.breakableKind) {
               this.spawnBreakableShatter(other.x, 0.9, other.breakableKind, 0.95);
               other.removed = true;
@@ -3256,23 +3325,48 @@ export class BlackKnightEngine {
         break;
       }
       case 'balloon_gold_rain': {
-        for (let i = 0; i < 7; i++) {
-          this.spawnPickup(
-            x + (i - 3) * 0.45,
-            y + 1.2 + Math.random() * 0.8,
-            2.2 + (i - 3) * 0.8,
-            5.5 + Math.random() * 2.5,
-            Math.round(8 * this.level.goldScale),
-            false,
-            0.25,
-          );
+        // Altın Balon tekil tahsisini 7 yağmur sikkesine birebir dağıtır (çift ödeme yok)
+        const totalBalloonGold = this.goldEconomy.allocateBreakableGold(
+          sourceEntityId,
+          'balloon',
+          this.upgrades,
+          isCrit,
+        );
+        if (totalBalloonGold > 0) {
+          const dropCount = Math.min(7, totalBalloonGold);
+          const perDrop = Math.floor(totalBalloonGold / dropCount);
+          let rem = totalBalloonGold - perDrop * dropCount;
+          for (let i = 0; i < dropCount; i++) {
+            const val = perDrop + (rem > 0 ? 1 : 0);
+            if (rem > 0) rem--;
+            if (val <= 0) continue;
+            const offset = i - (dropCount - 1) / 2;
+            this.spawnPickup(
+              x + offset * 0.45,
+              y + 1.2 + Math.random() * 0.8,
+              2.2 + offset * 0.8,
+              5.5 + Math.random() * 2.5,
+              val,
+              false,
+              0.25,
+            );
+          }
         }
         this.triggerScreenEffect('gold_confetti', 2.4);
         this.spawnPopup(x, y + 1.4, '🎈 BALON PATLADI! ALTIN YAĞMURU!', '#fde047', 1.25);
         break;
       }
       case 'golden_statue_multi': {
-        this.burstCoins(x, 1.0, Math.round(90 * this.level.goldScale), 2);
+        // Altın Heykel final kırılımı yalnızca TEK KEZ altın dağıtır (çift ödeme engelli)
+        const statueGold = this.goldEconomy.allocateBreakableGold(
+          sourceEntityId,
+          'golden_statue',
+          this.upgrades,
+          isCrit,
+        );
+        if (statueGold > 0) {
+          this.burstCoins(x, 1.0, statueGold, 2);
+        }
         this.spawnParticles(x, 1.4, 24, 0xfacc15, 10.5);
         this.triggerScreenEffect('gold_confetti', 2.6);
         this.spawnPopup(x, 2.7, '🏆 ALTIN HEYKEL PARÇALANDI!', '#fef08a', 1.4);
@@ -3308,7 +3402,16 @@ export class BlackKnightEngine {
         break;
       }
       case 'pumpkin_coins': {
-        this.burstCoins(x, 0.85, Math.round(52 * this.level.goldScale), 1);
+        // Altın Kabak yalnızca TEK KEZ altın dağıtır
+        const pumpkinGold = this.goldEconomy.allocateBreakableGold(
+          sourceEntityId,
+          'pumpkin',
+          this.upgrades,
+          isCrit,
+        );
+        if (pumpkinGold > 0) {
+          this.burstCoins(x, 0.85, pumpkinGold, 1);
+        }
         this.triggerScreenEffect('gold_confetti', 2.0);
         this.spawnPopup(x, 2.35, '🎃 KABAKTAN ALTIN FIŞKIRDI!', '#fb923c', 1.24);
         break;
@@ -3329,10 +3432,28 @@ export class BlackKnightEngine {
           this.spawnBonus(x + 0.2, 1.1, undefined, true);
           this.spawnPopup(x, 2.45, '🏴‍☠️ KORSAN GANİMETİ! BONUS!', '#2dd4bf', 1.28);
         } else if (roll < 0.7) {
-          this.burstCoins(x, 0.85, Math.round(64 * this.level.goldScale), 1);
+          const pirateGold = this.goldEconomy.allocateBreakableGold(
+            sourceEntityId,
+            'pirate_barrel',
+            this.upgrades,
+            isCrit,
+          );
+          if (pirateGold > 0) {
+            this.burstCoins(x, 0.85, pirateGold, 1);
+          }
           this.spawnPopup(x, 2.45, '🏴‍☠️ KORSAN ALTINLARI!', '#facc15', 1.28);
         } else {
           for (let i = 0; i < 3; i++) this.spawnInteractiveFx('fish', x, y + 0.2);
+          const fishGold = this.goldEconomy.allocateBreakableGold(
+            sourceEntityId,
+            'pirate_barrel',
+            this.upgrades,
+            isCrit,
+            0.5,
+          );
+          if (fishGold > 0) {
+            this.burstCoins(x, 0.85, fishGold, 0);
+          }
           const fishRes = this.scoreManager.addInteractiveFlavorScore(
             60,
             `pirate_fish_${sourceEntityId}`,
@@ -3486,10 +3607,15 @@ export class BlackKnightEngine {
     let burstHex = 0xfacc15;
 
     if (b.kind === 'gold_rush') {
-      const goldReward = Math.round((30 + Math.random() * 14) * this.level.goldScale);
-      this.burstCoins(knightX + 0.9, 1.15, goldReward, 1);
+      const goldReward = this.goldEconomy.allocateBonusGold(b.id);
+      if (goldReward > 0) {
+        this.burstCoins(knightX + 0.9, 1.15, goldReward, 1);
+      }
       title = 'ALTIN BONUSU!';
-      subtitle = `+${goldReward} ALTIN SAÇILDI!`;
+      subtitle =
+        goldReward > 0
+          ? `+${goldReward} GEÇİCİ ALTIN SAÇILDI!`
+          : 'BÖLÜM ALTIN TAVANINA ULAŞILDI!';
       burstHex = 0xfacc15;
     } else if (b.kind === 'double_score') {
       this.doubleScoreTimer = DOUBLE_SCORE_DURATION;
@@ -3913,21 +4039,18 @@ export class BlackKnightEngine {
           this.spawnParticles(knightX + 0.1, knightY, 5, 0xfde047, 5.2);
           this.spawnPopup(knightX + 0.15, knightY + 0.85, `+${p.value} ALTIN`, '#fde047', 1.05);
         } else if (awardLoot && !this.isTutorialMode) {
-          // Altın toplama yalnızca altın kesesini artırır, skoru asla değiştirmez
-          this.levelGold += p.value;
-          this.walletGold += p.value;
-          this.callbacks.onAchievementEvent?.({
-            type: 'gold_earned',
-            amount: p.value,
-          });
-          if (p.isBag) {
+          // YALNIZCA bölüm içi GEÇİCİ altın bakiyesi artar; kalıcı bakiye ve altın başarımları
+          // bölüm başarıyla tamamlanana kadar KESİNLİKLE artırılmaz!
+          const addedTempGold = this.goldEconomy.collectPickupGold(p.id, p.value);
+          if (p.isBag && addedTempGold > 0) {
             this.goldBags += 1;
             audioEngine.playGoldBag();
             this.callbacks.onAchievementEvent?.({
               type: 'special_reward',
               count: 1,
+              eventKey: `bag_${this.currentRunId}_${p.id}`,
             });
-          } else if (this.elapsed - this.lastCoinSoundTime >= 0.042) {
+          } else if (addedTempGold > 0 && this.elapsed - this.lastCoinSoundTime >= 0.042) {
             this.lastCoinSoundTime = this.elapsed;
             audioEngine.playCoin(this.combo);
           }
@@ -4613,20 +4736,320 @@ export class BlackKnightEngine {
     this.camera.lookAt(sx, this.baseCamY + sy, 0);
   }
 
+  private handleBossDefeated(bx: number, by: number): void {
+    audioEngine.playBossVictory();
+    this.camShake = 0.9;
+    this.spawnParticles(bx, by, 34, 0xfacc15, 11);
+    this.spawnParticles(bx, by + 0.5, 22, 0xf97316, 10);
+    this.spawnStarburst(bx, by, 2.2);
+    if (this.level.boss) {
+      this.handleScoreResult(
+        this.scoreManager.addBossDefeatScore(
+          this.level.boss.rewardScore,
+          this.level.boss.id,
+        ),
+      );
+      // Boss yenilgi altını tekil olarak tahsis edilir ve YALNIZCA geçici bölüm bakiyesine gider;
+      // kalıcı bakiyeye bölüm zaferi kesinleştiğinde tek işlemde aktarılır!
+      const defeatGold = this.goldEconomy.allocateBossDefeatGold(
+        this.level.boss.id,
+        this.upgrades,
+      );
+      if (defeatGold > 0) {
+        this.burstCoins(bx, by, defeatGold, 2);
+      }
+      this.callbacks.onAchievementEvent?.({
+        type: 'boss_defeated',
+        bossId: this.level.boss.id,
+        eventKey: `boss_${this.currentRunId}_${this.level.boss.id}`,
+      });
+      this.spawnPopup(
+        bx,
+        3.5,
+        `${this.level.boss.name.toUpperCase()} YENİLDİ!`,
+        '#4ade80',
+        1.48,
+      );
+    }
+    this.bossVictoryDelay = 1.35;
+    this.emitHud();
+  }
+
+  private resetVictoryCinematicAndLighting(): void {
+    if (this.victoryFailsafeTimerId !== null) {
+      window.clearTimeout(this.victoryFailsafeTimerId);
+      this.victoryFailsafeTimerId = null;
+    }
+    this.victoryCinematic.reset();
+    this.victoryStartWallMs = 0;
+    this.victoryFadeAlpha = 0;
+    this.victoryEnvDim = 0;
+    this.pendingVictoryResult = null;
+    this.pendingVictoryEmitted = false;
+
+    for (let i = 0; i < this.cinematicSceneDimTargets.length; i++) {
+      const entry = this.cinematicSceneDimTargets[i];
+      entry.mat.color.copy(entry.baseColor);
+      entry.mat.opacity = entry.baseOpacity;
+    }
+    this.cinematicSceneDimTargets = [];
+
+    if (this.cinematicBaseBgColor && this.scene.background instanceof THREE.Color) {
+      this.scene.background.copy(this.cinematicBaseBgColor);
+    }
+    this.cinematicBaseBgColor = null;
+
+    if (this.cinematicBaseFogColor && this.scene.fog instanceof THREE.Fog) {
+      this.scene.fog.color.copy(this.cinematicBaseFogColor);
+    }
+    this.cinematicBaseFogColor = null;
+
+    if (this.hemiLight) this.hemiLight.intensity = this.baseHemiIntensity;
+    if (this.keyLight) this.keyLight.intensity = this.baseKeyIntensity;
+    if (this.rimLight) this.rimLight.intensity = this.baseRimIntensity;
+    this.scene.environmentIntensity = 1;
+    this.renderer.toneMappingExposure = this.baseExposure;
+    this.knight.setCinematicBrightness(1);
+  }
+
+  private captureCinematicDimTargets(): void {
+    this.cinematicSceneDimTargets = [];
+    const seen = new Set<THREE.MeshBasicMaterial>();
+    const collectFrom = (obj: THREE.Object3D) => {
+      obj.traverse((child) => {
+        if (child instanceof THREE.Mesh && child.material instanceof THREE.MeshBasicMaterial) {
+          if (!seen.has(child.material)) {
+            seen.add(child.material);
+            this.cinematicSceneDimTargets.push({
+              mat: child.material,
+              baseColor: child.material.color.clone(),
+              baseOpacity: child.material.opacity,
+            });
+          }
+        }
+      });
+    };
+
+    collectFrom(this.worldGroup);
+    for (const t of this.targets) collectFrom(t.mesh);
+    for (const b of this.bonuses) collectFrom(b.rig.group);
+    for (const m of this.ambientMotes) collectFrom(m.mesh);
+    // Boss sahne grubu varsa (knight.root ve worldGroup dışındaki sahne grupları) yakala
+    for (const child of this.scene.children) {
+      if (
+        child instanceof THREE.Group &&
+        child !== this.worldGroup &&
+        child !== this.knight.root
+      ) {
+        collectFrom(child);
+      }
+    }
+
+    this.cinematicBaseBgColor =
+      this.scene.background instanceof THREE.Color ? this.scene.background.clone() : null;
+    this.cinematicBaseFogColor =
+      this.scene.fog instanceof THREE.Fog ? this.scene.fog.color.clone() : null;
+  }
+
+  private applyVictoryCinematicVisuals(frame: VictoryCinematicFrame): void {
+    this.victoryEnvDim = frame.envDim;
+    this.victoryFadeAlpha = frame.screenFadeAlpha;
+
+    const envLightFactor = Math.max(0.02, 1 - frame.envDim * 0.98);
+    this.hemiLight.intensity = this.baseHemiIntensity * envLightFactor;
+    this.keyLight.intensity = this.baseKeyIntensity * envLightFactor;
+    this.rimLight.intensity = this.baseRimIntensity * envLightFactor;
+    this.scene.environmentIntensity = envLightFactor;
+    this.renderer.toneMappingExposure = this.baseExposure * (1 - frame.envDim * 0.52);
+
+    if (this.cinematicBaseBgColor && this.scene.background instanceof THREE.Color) {
+      this.scene.background
+        .copy(this.cinematicBaseBgColor)
+        .lerp(this.cinematicBlackColor, frame.envDim);
+    }
+    if (this.cinematicBaseFogColor && this.scene.fog instanceof THREE.Fog) {
+      this.scene.fog.color
+        .copy(this.cinematicBaseFogColor)
+        .lerp(this.cinematicBlackColor, frame.envDim);
+    }
+
+    const basicDimFactor = Math.max(0, 1 - frame.envDim * 0.97);
+    for (let i = 0; i < this.cinematicSceneDimTargets.length; i++) {
+      const entry = this.cinematicSceneDimTargets[i];
+      entry.mat.color.copy(entry.baseColor).multiplyScalar(basicDimFactor);
+    }
+
+    this.knight.setCinematicBrightness(frame.silhouetteBrightness);
+  }
+
+  private startVictoryCinematic(resultPayload: LevelResult): void {
+    // Tüm oynanış efektlerini, fizik hareketlerini ve girdileri güvenle durdur
+    this.isCharging = false;
+    this.charge = 0;
+    this.moveInput = 0;
+    this.bossMoveInput = 0;
+    this.swingTimer = 0;
+    this.dizzyTimer = 0;
+    this.pigTimer = 0;
+    this.bossPlayerInvulnTimer = 0;
+    this.getMedievalFlashTimer = 0;
+    this.activeBonusBanner = null;
+    this.bonusBannerTimer = 0;
+    this.activeEventBanner = null;
+    this.eventBannerTimer = 0;
+    this.screenEffects = [];
+    this.camShake = 0;
+    this.hitstopTimer = 0;
+    this.knight.root.visible = true;
+
+    const startX = this.getKnightX();
+    const startY = this.bossJumpY + this.hopY;
+    this.hopOffsetX = 0;
+    this.hopY = 0;
+    this.bossJumpY = 0;
+    this.bossJumpVy = 0;
+    this.bossGrounded = true;
+
+    this.pendingVictoryResult = resultPayload;
+    this.pendingVictoryEmitted = false;
+    this.captureCinematicDimTargets();
+
+    const started = this.victoryCinematic.start({
+      startX,
+      startY,
+      cameraRight: this.camera.right,
+    });
+
+    if (!started) {
+      this.completeVictoryCinematicSafely();
+      return;
+    }
+
+    this.victoryStartWallMs = performance.now();
+    this.hudEmitAccum = 0;
+
+    // Mobilde sekme arka plana alınır veya RAF duraklarsa oyuncunun siyah ekranda kilitlenmesini önle
+    this.victoryFailsafeTimerId = window.setTimeout(() => {
+      this.completeVictoryCinematicSafely();
+    }, VICTORY_CINEMATIC_FAILSAFE_MS);
+
+    this.applyVictoryCinematicVisuals(this.victoryCinematic.getCurrentFrame());
+    this.emitHud();
+  }
+
+  private updateVictoryCinematic(rawDt: number): void {
+    const safeDt = Math.min(Math.max(rawDt, 0.001), 0.1);
+    const wallElapsedMs = performance.now() - this.victoryStartWallMs;
+    const frame =
+      wallElapsedMs >= VICTORY_CINEMATIC_FAILSAFE_MS
+        ? this.victoryCinematic.forceComplete()
+        : this.victoryCinematic.step(safeDt);
+
+    this.elapsed += safeDt;
+    this.animTime += safeDt * frame.walkAnimSpeed;
+
+    if (frame.worldScrollScale > 0.001) {
+      this.scrollWorld(safeDt * frame.worldScrollScale);
+    }
+
+    this.updateParticlesAndFx(safeDt * 0.5);
+
+    this.animState = 'run';
+    this.knight.update({
+      x: frame.knightX,
+      y: GROUND_Y + frame.knightY,
+      hopY: frame.knightY,
+      animState: 'run',
+      animTime: this.animTime,
+      charge: 0,
+      swingProgress: 0,
+      dt: safeDt,
+    });
+
+    this.applyVictoryCinematicVisuals(frame);
+
+    if (frame.justCompleted || frame.completed) {
+      this.completeVictoryCinematicSafely();
+      return;
+    }
+
+    this.hudEmitAccum += safeDt;
+    if (this.hudEmitAccum >= 0.025) {
+      this.hudEmitAccum = 0;
+      this.emitHud();
+    }
+  }
+
+  private completeVictoryCinematicSafely(): void {
+    if (this.disposed || this.pendingVictoryEmitted || !this.pendingVictoryResult) {
+      return;
+    }
+    this.pendingVictoryEmitted = true;
+
+    if (this.victoryFailsafeTimerId !== null) {
+      window.clearTimeout(this.victoryFailsafeTimerId);
+      this.victoryFailsafeTimerId = null;
+    }
+
+    const finalFrame = this.victoryCinematic.forceComplete();
+    this.applyVictoryCinematicVisuals(finalFrame);
+
+    const finalResult = this.pendingVictoryResult;
+    this.pendingVictoryResult = null;
+
+    this.screen = finalResult.isFinalLevel ? 'VICTORY' : 'LEVEL_CLEAR';
+    this.emitHud();
+    this.callbacks.onLevelEnd(finalResult);
+  }
+
   private finishLevel(won: boolean, failTitle?: string, failReason?: string): void {
     if (this.levelEnding) return;
     this.levelEnding = true;
     this.isCharging = false;
     this.charge = 0;
     this.bossMoveInput = 0;
+    this.moveInput = 0;
     audioEngine.stopMusic();
 
+    let collectedLevelGold = 0;
+    let completionBonusGold = 0;
+    let totalGoldAwarded = 0;
+    let lostTemporaryGold = 0;
+    let alreadySettled = false;
+
     if (won) {
+      // Başarıda arenada havada kalmış kazanılmış sikkeler geçici bakiyeye alınır
+      this.goldEconomy.flushRemainingPickupsOnVictory(this.pickups);
+      for (const p of this.pickups) {
+        if (!p.collected) {
+          p.collected = true;
+          this.scene.remove(p.mesh);
+        }
+      }
+      this.pickups = [];
+
+      const settlement = this.goldEconomy.settleLevelVictory(this.currentRunId);
+      collectedLevelGold = settlement.collectedLevelGold;
+      completionBonusGold = settlement.completionBonusGold;
+      totalGoldAwarded = settlement.totalAwardedGold;
+      alreadySettled = settlement.alreadySettled;
+
       if (!this.level.isBossLevel) {
         audioEngine.playLevelComplete();
       }
-      this.screen = this.level.id >= TOTAL_LEVELS ? 'VICTORY' : 'LEVEL_CLEAR';
     } else {
+      // Başarısızlıkta sahadaki tüm toplanmamış sikkeler ve geçici bakiye tamamen silinir
+      for (const p of this.pickups) {
+        if (!p.collected) {
+          p.collected = true;
+          this.scene.remove(p.mesh);
+        }
+      }
+      this.pickups = [];
+
+      const failure = this.goldEconomy.failLevelSession();
+      lostTemporaryGold = failure.lostTemporaryGold;
+
       if (!failTitle) {
         audioEngine.playGameOver();
       }
@@ -4634,15 +5057,18 @@ export class BlackKnightEngine {
     }
 
     const world = getWorldConfig(this.level.worldId);
-    this.emitHud();
-    this.callbacks.onLevelEnd({
+    const resultPayload: LevelResult = {
       won,
       levelId: this.level.id,
       worldId: this.level.worldId,
       worldName: world.name,
       levelName: this.level.name,
-      levelGold: this.levelGold,
-      walletGold: this.walletGold,
+      levelGold: collectedLevelGold,
+      completionBonusGold,
+      totalGoldAwarded,
+      lostTemporaryGold,
+      alreadySettled,
+      walletGold: this.permanentWalletGold,
       goldBags: this.goldBags,
       timeRemaining: Math.ceil(this.timeLeft),
       levelScore: this.scoreManager.getScore(),
@@ -4661,7 +5087,17 @@ export class BlackKnightEngine {
       mistakes: this.roundMistakes,
       sawPrincess: this.roundSawPrincess,
       sawKing: this.roundSawKing,
-    });
+    };
+
+    if (won) {
+      // Yalnızca kesin zaferde 3 saniyelik sinematik final animasyonunu başlat;
+      // bitişte mevcut Bölüm Tamamlandı / Zafer ekranı tek seferde açılır.
+      this.startVictoryCinematic(resultPayload);
+      return;
+    }
+
+    this.emitHud();
+    this.callbacks.onLevelEnd(resultPayload);
   }
 
   private emitHud(): void {
@@ -4683,8 +5119,10 @@ export class BlackKnightEngine {
       activeEventBanner: this.activeEventBanner,
       equippedWeapon: this.upgrades.equippedWeapon,
       weaponName: weaponSpec.name,
-      levelGold: this.levelGold,
-      walletGold: this.walletGold,
+      levelGold: this.goldEconomy.getTemporaryGold(),
+      walletGold: this.permanentWalletGold,
+      maxInLevelGold: this.goldEconomy.getMaxInLevelGold(),
+      completionBonusGold: this.goldEconomy.getCompletionBonusGold(),
       goldBags: this.goldBags,
       levelScore: this.scoreManager.getScore(),
       scoreTarget: this.scoreManager.getScoreTarget(),
@@ -4711,6 +5149,8 @@ export class BlackKnightEngine {
       quotaMet: this.level.isBossLevel
         ? Boolean(this.boss?.defeated)
         : this.scoreManager.isTargetMet(),
+      victoryCinematicActive: this.victoryCinematic.isActive(),
+      victoryFadeAlpha: this.victoryFadeAlpha,
     });
   }
 
@@ -4724,6 +5164,7 @@ export class BlackKnightEngine {
 
   public dispose(): void {
     this.disposed = true;
+    this.resetVictoryCinematicAndLighting();
     cancelAnimationFrame(this.frameId);
     window.clearTimeout(this.frameId);
     window.removeEventListener('resize', this.onResizeBound);

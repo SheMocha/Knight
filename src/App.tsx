@@ -21,6 +21,7 @@ import {
   SHOP_CHARMS,
 } from './game/shop';
 import {
+  creditPermanentRewardedAdGold,
   loadSaveData,
   markTutorialCompleted,
   persistSaveData,
@@ -77,6 +78,8 @@ const INITIAL_HUD: HudSnapshot = {
   activeBonusBanner: null,
   screenEffects: [],
   quotaMet: false,
+  victoryCinematicActive: false,
+  victoryFadeAlpha: 0,
 };
 
 export default function App() {
@@ -115,6 +118,8 @@ export default function App() {
   }));
   const isBossLevelRef = useRef(false);
   isBossLevelRef.current = hud.isBossLevel;
+  const victoryCinematicActiveRef = useRef(false);
+  victoryCinematicActiveRef.current = Boolean(hud.victoryCinematicActive);
   const [tutorialState, setTutorialState] = useState<TutorialSnapshot | null>(null);
   const tutorialStateRef = useRef<TutorialSnapshot | null>(null);
   tutorialStateRef.current = tutorialState;
@@ -196,17 +201,33 @@ export default function App() {
       },
       onLevelEnd: (rawResult) => {
         activePointerIdRef.current = null;
-        const { next, isNewBest, newlyUnlockedLevel } = recordLevelResult(
-          saveDataRef.current,
-          rawResult.levelId,
-          rawResult.levelScore,
-          rawResult.levelGold,
-          rawResult.walletGold,
-          rawResult.won,
-        );
+        const effectiveRunId = rawResult.runId || `${rawResult.levelId}_${Date.now()}`;
+        const {
+          next,
+          isNewBest,
+          newlyUnlockedLevel,
+          goldAwarded,
+          duplicateBlocked,
+        } = recordLevelResult(saveDataRef.current, {
+          runId: effectiveRunId,
+          levelId: rawResult.levelId,
+          score: rawResult.levelScore,
+          collectedLevelGold: rawResult.won ? rawResult.levelGold : 0,
+          completionBonusGold: rawResult.won ? rawResult.completionBonusGold : 0,
+          won: rawResult.won,
+        });
+
         setSaveData(next);
+        engineRef.current?.syncUpgradesAndWallet(next.upgrades, next.walletGold);
         setResult({
           ...rawResult,
+          runId: effectiveRunId,
+          levelGold: rawResult.won && !duplicateBlocked ? rawResult.levelGold : 0,
+          completionBonusGold:
+            rawResult.won && !duplicateBlocked ? rawResult.completionBonusGold : 0,
+          totalGoldAwarded: goldAwarded,
+          lostTemporaryGold: rawResult.won ? 0 : rawResult.lostTemporaryGold,
+          alreadySettled: Boolean(rawResult.alreadySettled || duplicateBlocked),
           walletGold: next.walletGold,
           isNewBest,
           newlyUnlockedLevel,
@@ -215,9 +236,17 @@ export default function App() {
         if (rawResult.won) {
           setLevelClearRewardClaimed(false);
           adManager.recordLevelCompleted(rawResult.levelId);
+          // Altın başarımları YALNIZCA bölüm başarıyla tamamlanıp kalıcı bakiyeye aktarıldığında işlenir
+          if (goldAwarded > 0 && !duplicateBlocked) {
+            achievementManager.recordEvent({
+              type: 'gold_earned',
+              amount: goldAwarded,
+              eventKey: `level_gold_${effectiveRunId}`,
+            });
+          }
           achievementManager.recordEvent({
             type: 'level_completed',
-            runId: rawResult.runId || `${rawResult.levelId}_${Date.now()}`,
+            runId: effectiveRunId,
             levelId: rawResult.levelId,
             completedLevelsCount: next.completedLevels.length,
             levelScore: rawResult.levelScore,
@@ -278,6 +307,9 @@ export default function App() {
     };
 
     const onKeyDown = (e: KeyboardEvent) => {
+      if (victoryCinematicActiveRef.current) {
+        return;
+      }
       if (e.code === 'Escape' || e.code === 'KeyP') {
         if (screenRef.current === 'PLAYING') {
           e.preventDefault();
@@ -350,6 +382,10 @@ export default function App() {
     };
 
     const onKeyUp = (e: KeyboardEvent) => {
+      if (victoryCinematicActiveRef.current) {
+        pressedMoveKeysRef.current = { left: false, right: false };
+        return;
+      }
       if (e.code === 'ArrowLeft' || e.code === 'KeyA') {
         pressedMoveKeysRef.current.left = false;
         syncKeyboardMove();
@@ -431,6 +467,7 @@ export default function App() {
   }, []);
 
   const handlePause = useCallback(() => {
+    if (victoryCinematicActiveRef.current) return;
     audioEngine.playUiClick();
     activePointerIdRef.current = null;
     engineRef.current?.cancelCharge();
@@ -604,12 +641,14 @@ export default function App() {
   }, []);
 
   const handleFinishEarly = useCallback(() => {
+    if (victoryCinematicActiveRef.current) return;
     audioEngine.playUiClick();
     engineRef.current?.finishRoundEarlyIfQuotaMet();
   }, []);
 
   const handlePlayfieldPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (screen !== 'PLAYING' && screen !== 'TUTORIAL') return;
+    if (victoryCinematicActiveRef.current) return;
     // Boss bölümlerinde sol joystick ve sağ saldırı butonu özel dokunma kontrollerini yönetir
     if (screen === 'PLAYING' && isBossLevelRef.current) return;
     e.preventDefault();
@@ -702,24 +741,28 @@ export default function App() {
       void adManager.showRewardedAd(placement, levelGoldEarned).then((outcome) => {
         setAdFeedback(outcome.message);
         if (outcome.rewarded && outcome.goldAmount > 0) {
-          audioEngine.playGoldBag();
-          setSaveData((prev) => {
-            const nextWallet = prev.walletGold + outcome.goldAmount;
-            const next: SaveData = { ...prev, walletGold: nextWallet };
-            persistSaveData(next);
-            engineRef.current?.syncUpgradesAndWallet(next.upgrades, nextWallet);
-            return next;
-          });
-          if (placement === 'level_clear_bonus') {
-            setLevelClearRewardClaimed(true);
-            setResult((prev) =>
-              prev ? { ...prev, walletGold: prev.walletGold + outcome.goldAmount } : prev,
-            );
+          // Kalıcı reklam ödülü bölüm içi geçici altın havuzundan tamamen bağımsız aktarılır
+          const { next, credited, duplicateBlocked } = creditPermanentRewardedAdGold(
+            saveDataRef.current,
+            outcome.goldAmount,
+            outcome.grantToken,
+          );
+          if (credited > 0 && !duplicateBlocked) {
+            audioEngine.playGoldBag();
+            setSaveData(next);
+            engineRef.current?.syncUpgradesAndWallet(next.upgrades, next.walletGold);
+            if (placement === 'level_clear_bonus') {
+              setLevelClearRewardClaimed(true);
+              setResult((prev) =>
+                prev ? { ...prev, walletGold: next.walletGold } : prev,
+              );
+            }
+            achievementManager.recordEvent({
+              type: 'gold_earned',
+              amount: credited,
+              eventKey: outcome.grantToken ? `ad_gold_${outcome.grantToken}` : undefined,
+            });
           }
-          achievementManager.recordEvent({
-            type: 'gold_earned',
-            amount: outcome.goldAmount,
-          });
         }
       });
     },
@@ -877,7 +920,7 @@ export default function App() {
           onMainMenu={handleMainMenu}
           onToggleSound={handleToggleSound}
           onWatchLevelClearRewarded={() =>
-            handleWatchRewardedAd('level_clear_bonus', result?.levelGold ?? 0)
+            handleWatchRewardedAd('level_clear_bonus', result?.totalGoldAwarded ?? 0)
           }
         />
 

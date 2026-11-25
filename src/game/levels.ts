@@ -8,6 +8,7 @@ import {
   SpawnPatternKind,
   SpecialNpcKind,
 } from './types';
+import { computeLevelGoldCalibration } from './goldEconomy';
 import { computeLevelScoreCalibration } from './scoreManager';
 import { getWorldConfig, LEVELS_PER_WORLD, TOTAL_LEVELS, WORLDS } from './worlds';
 
@@ -158,7 +159,7 @@ const BOSS_CONFIGS: Record<number, BossConfig> = {
     title: 'Altın Hazine Golemi',
     maxHp: 1100,
     phases: 2,
-    rewardGold: 420,
+    rewardGold: 280,
     rewardScore: 4500,
     primaryColor: '#d97706',
     accentColor: '#fde047',
@@ -171,7 +172,7 @@ const BOSS_CONFIGS: Record<number, BossConfig> = {
     title: 'Zırhlı Sur Komutanı',
     maxHp: 1650,
     phases: 2,
-    rewardGold: 620,
+    rewardGold: 440,
     rewardScore: 6800,
     primaryColor: '#475569',
     accentColor: '#f97316',
@@ -184,7 +185,7 @@ const BOSS_CONFIGS: Record<number, BossConfig> = {
     title: 'Kraliyet Hazine Golemi',
     maxHp: 2250,
     phases: 2,
-    rewardGold: 860,
+    rewardGold: 620,
     rewardScore: 9500,
     primaryColor: '#eab308',
     accentColor: '#60a5fa',
@@ -197,7 +198,7 @@ const BOSS_CONFIGS: Record<number, BossConfig> = {
     title: 'Kum Fırtınası Büyücüsü',
     maxHp: 2850,
     phases: 3,
-    rewardGold: 1150,
+    rewardGold: 800,
     rewardScore: 12800,
     primaryColor: '#b45309',
     accentColor: '#22d3ee',
@@ -210,7 +211,7 @@ const BOSS_CONFIGS: Record<number, BossConfig> = {
     title: 'İskelet Necromancer',
     maxHp: 3500,
     phases: 3,
-    rewardGold: 1480,
+    rewardGold: 1000,
     rewardScore: 16500,
     primaryColor: '#6b21a8',
     accentColor: '#a3e635',
@@ -223,7 +224,7 @@ const BOSS_CONFIGS: Record<number, BossConfig> = {
     title: 'Son Büyük Kraliyet Ejderhası',
     maxHp: 4600,
     phases: 3,
-    rewardGold: 2500,
+    rewardGold: 1300,
     rewardScore: 25000,
     primaryColor: '#dc2626',
     accentColor: '#facc15',
@@ -1100,7 +1101,6 @@ function buildAllLevels(): LevelConfig[] {
         : Math.min(72, 46 + Math.floor(wIdx * 2.2) + (sIdx >= 4 ? 4 : 0));
 
       const scrollSpeed = Number((6.6 + progress * 3.8 + sIdx * 0.14).toFixed(2));
-      const goldScale = Number((1.0 + progress * 2.4 + sIdx * 0.05).toFixed(2));
       const spawnInterval = Number(Math.max(0.68, 1.24 - progress * 0.42 - sIdx * 0.015).toFixed(2));
 
       // Cadı olasılığı: Karanlık Orman ve Lanetli Mezarlıkta biraz daha yüksek, ilk bölümde nazik
@@ -1120,6 +1120,30 @@ function buildAllLevels(): LevelConfig[] {
 
       // Merkezi kalibrasyon: bölüm hedefi, gerçek maksimum skor sınırı ve yoğunluk ölçeği
       const { scoreTarget, maxScore, levelScoreScale } = computeLevelScoreCalibration({
+        id,
+        totalLevels: TOTAL_LEVELS,
+        timeLimit,
+        spawnInterval,
+        witchChance,
+        specialObjectChance,
+        specialNpcChance,
+        spawnPattern: spec.spawnPattern,
+        levelEvent: spec.levelEvent,
+        objectPool: spec.objectPool,
+        specialObjectPool: spec.specialObjectPool,
+        characterPool: spec.characterPool,
+        specialNpcPool: spec.specialNpcPool,
+        isBossLevel,
+        boss: spec.boss,
+      });
+
+      // Merkezi altın ekonomisi kalibrasyonu: 60 bölüm boyunca dengeli geçici altın + tamamlama bonusu
+      const {
+        levelGoldScale,
+        expectedLevelGold,
+        maxInLevelGold,
+        completionBonusGold,
+      } = computeLevelGoldCalibration({
         id,
         totalLevels: TOTAL_LEVELS,
         timeLimit,
@@ -1157,7 +1181,10 @@ function buildAllLevels(): LevelConfig[] {
         levelScoreScale,
         timeLimit,
         scrollSpeed,
-        goldScale,
+        goldScale: levelGoldScale,
+        expectedLevelGold,
+        maxInLevelGold,
+        completionBonusGold,
         spawnInterval,
         witchChance,
         specialObjectChance,

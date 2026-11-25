@@ -1499,6 +1499,9 @@ export class BlackKnight {
 
   private activeWeapon: WeaponId;
   private currentMood: KnightFaceMood = 'normal';
+  private knightPartMaterials: THREE.MeshBasicMaterial[] = [];
+  private shadowBaseOpacity = 1;
+  private cinematicBrightness = 1;
 
   constructor(shadowMesh: THREE.Mesh, initialWeapon: WeaponId) {
     this.shadow = shadowMesh;
@@ -1914,6 +1917,16 @@ export class BlackKnight {
       this.pigLegs.push(legPivot);
     }
 
+    this.knightGroup.traverse((obj) => {
+      if (obj instanceof THREE.Mesh && obj.material instanceof THREE.MeshBasicMaterial) {
+        this.knightPartMaterials.push(obj.material);
+      }
+    });
+    const shadowMat = this.shadow.material as THREE.MeshBasicMaterial;
+    if (shadowMat && typeof shadowMat.opacity === 'number') {
+      this.shadowBaseOpacity = shadowMat.opacity;
+    }
+
     this.setWeapon(initialWeapon);
   }
 
@@ -1941,6 +1954,19 @@ export class BlackKnight {
     return this.activeWeapon;
   }
 
+  public setCinematicBrightness(factor: number): void {
+    const clamped = Math.max(0, Math.min(1, factor));
+    if (Math.abs(clamped - this.cinematicBrightness) < 0.0005) return;
+    this.cinematicBrightness = clamped;
+    for (let i = 0; i < this.knightPartMaterials.length; i++) {
+      this.knightPartMaterials[i].color.setScalar(clamped);
+    }
+    const shadowMat = this.shadow.material as THREE.MeshBasicMaterial;
+    if (shadowMat && typeof shadowMat.opacity === 'number') {
+      shadowMat.opacity = this.shadowBaseOpacity * clamped;
+    }
+  }
+
   public resetPose(x: number, y: number): void {
     this.root.position.set(x, y, 0);
     this.root.rotation.set(0, 0, 0);
@@ -1951,6 +1977,7 @@ export class BlackKnight {
     this.chargeRune.visible = false;
     this.slashArc.visible = false;
     this.dizzyGroup.visible = false;
+    this.setCinematicBrightness(1);
     this.setMood('normal');
   }
 

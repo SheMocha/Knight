@@ -1,3 +1,4 @@
+import { calculateGoldMultiplier } from './goldEconomy';
 import { CharmId, PlayerUpgrades, ShopCharm, ShopWeapon, WeaponId } from './types';
 
 export const SHOP_WEAPONS: ShopWeapon[] = [
@@ -15,7 +16,7 @@ export const SHOP_WEAPONS: ShopWeapon[] = [
     cost: 750,
     powerMult: 1.12,
     hitRange: 3.25,
-    description: 'Daha geniş menzil ve +%12 altın kazancı sağlar.',
+    description: 'Daha geniş menzil ve +%7 altın kazancı sağlar.',
   },
   {
     id: 'hammer',
@@ -23,7 +24,7 @@ export const SHOP_WEAPONS: ShopWeapon[] = [
     cost: 2200,
     powerMult: 1.25,
     hitRange: 3.6,
-    description: 'Ağır demir başlıkla hedefleri uzağa savurur, +%25 altın kazandırır.',
+    description: 'Ağır demir başlıkla hedefleri uzağa savurur, +%14 altın kazandırır.',
   },
   {
     id: 'axe',
@@ -31,7 +32,7 @@ export const SHOP_WEAPONS: ShopWeapon[] = [
     cost: 4500,
     powerMult: 1.4,
     hitRange: 4.0,
-    description: 'Geniş çift ağızlı kesimle uzun menzil ve +%40 altın kazancı.',
+    description: 'Geniş çift ağızlı kesimle uzun menzil ve +%22 altın kazancı.',
   },
   {
     id: 'excalibur',
@@ -39,7 +40,7 @@ export const SHOP_WEAPONS: ShopWeapon[] = [
     cost: 8000,
     powerMult: 1.58,
     hitRange: 4.4,
-    description: 'Kraliyet vergilerini toplamak için kutsanmış efsanevi kılıç (+%58 altın).',
+    description: 'Kraliyet vergilerini toplamak için kutsanmış efsanevi kılıç (+%32 altın).',
   },
   {
     id: 'mace',
@@ -47,7 +48,7 @@ export const SHOP_WEAPONS: ShopWeapon[] = [
     cost: 13500,
     powerMult: 1.8,
     hitRange: 4.85,
-    description: 'En üst seviye efsanevi dikenli şövalye gürzü (+%80 altın)!',
+    description: 'En üst seviye efsanevi dikenli şövalye gürzü (+%44 altın)!',
   },
 ];
 
@@ -57,7 +58,7 @@ export const SHOP_CHARMS: ShopCharm[] = [
     name: 'Şans Muskası',
     costs: [450, 1200, 2600],
     maxLevel: 3,
-    description: 'Her seviye düşen altın miktarını +%8 artırır.',
+    description: 'Her seviye düşen altın miktarını +%6 artırır (tavan çarpan içinde).',
   },
   {
     id: 'armorOil',
@@ -108,9 +109,6 @@ export function getDizzyDuration(upgrades: PlayerUpgrades): number {
   return Math.max(0.45, 1.5 - upgrades.armorOil * 0.35);
 }
 
-export function getGoldMultiplier(upgrades: PlayerUpgrades): number {
-  const weapon = getWeaponSpec(upgrades.equippedWeapon);
-  const amuletBonus = upgrades.luckyAmulet * 0.08;
-  // Çarpımsal patlama yerine dengeli toplam bonus
-  return weapon.powerMult + amuletBonus;
+export function getGoldMultiplier(upgrades: PlayerUpgrades, isCrit = false): number {
+  return calculateGoldMultiplier(upgrades, isCrit);
 }

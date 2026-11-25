@@ -89,3 +89,35 @@ Bu doküman, Three.js tabanlı **The Black Knight: Orta Çağ Altın Avı** oyun
 - **Doku Önbellekleme:** Tüm kırılabilir nesne (`BreakableCatalog.ts`), özel NPC (`SpecialNpcs.ts`), Boss (`BossSystem.ts`) ve karanlık fantezi çevre dokuları tek seferlik CanvasTexture olarak önbellekte tutulur ve `dispose()` anında tamamen serbest bırakılır.
 - **Nesne Havuzları (Object Pooling):** Parçalanma enkazı (`debrisPool`, 56 slot), etkileşimli efektler (`interactiveFxPool`, 24 slot), Boss tehlike/mermileri (`hazardPool`, 12 slot), kıvılcım ve sikkeler çalışma zamanında yeni GPU bellek tahsisi yapmadan yeniden kullanılır.
 - **UI Performansı:** Oyun içi aktif WebGL sahnesi üstünde (`GameHud.tsx` ve `BossControlsHud.tsx`) `backdrop-blur` kullanılmaz; çoklu dokunuş joystick ve saldırı butonu `pointerId` ile izole edilmiştir.
+
+---
+
+## 7. Merkezi Altın Ekonomisi ve Bölüm Başarısına Bağlı Ödül Sistemi
+
+Altın kazanma, hesaplama, geçici bakiye takibi ve kalıcı ödül aktarımı `src/game/goldEconomy.ts` (`GoldEconomyManager`) ve `src/game/storage.ts` üzerinden tek merkezden yönetilir.
+
+### 7.1 Tespit Edilen ve Giderilen Eski Enflasyon / Çift Ödeme Hataları
+- **Üst Üste Çarpılan Çarpanlar:** Eskiden hedefler spawn anında `goldScale` (3.65x'e kadar) ile çarpılıyor, vuruş anında tekrar `goldMult` (2.04x) ve `goldPowerScale` (1.25x) ile katlanıyordu (~9.3x). Artık tüm kaynaklar tekil taban tablosu + bölüm kalibre ölçeği + üst tavanlı toplamsal altın çarpanı (`MAX_GOLD_MULTIPLIER = 1.65x`) ile hesaplanır.
+- **Etkileşimli Nesne Çift Ödemeleri:** `golden_statue`, `balloon`, `pumpkin` ve `pirate_barrel` eskiden hem genel vuruşta hem etkileşimli efekt içinde ikinci kez altın saçıyordu. Artık `SELF_DISTRIBUTING_GOLD_BREAKABLES` koruması ve tekil `target_${entityId}` anahtarı ile yalnızca **bir kez** ödeme yapar.
+- **TNT ve Zincir Patlama Çift Sayımı:** `allocateTntBlastGold`, normal vuruşlarla aynı `target_${entityId}` tekilleştirme anahtarını kullanır; bir hedef hem vuruş hem TNT veya zincir patlama ile asla iki kez altın üretemez.
+- **Boss Sınırsız Vuruş ve Çift Yenilgi Ödülü:** Boss vuruş altını toplam boss ödülünün %25 bütçesiyle sınırlandı; yinelenen `onBossDefeated` kod bloğu tek `handleBossDefeated` metodunda birleştirildi ve `boss_defeat_${bossId}` anahtarıyla tekilleştirildi.
+- **Skor / Kombo Ayrımı:** Kombo çarpanı, `2X Çift Skor`, `Süper Güç` ve `Ekstra Puan` bonusları altın hesaplamasına kesinlikle girmez.
+
+### 7.2 60 Bölümlük Dengeli Altın Eğrisi (`computeLevelGoldCalibration`)
+- **Mağaza Toplam Maliyeti:** Silahlar (`28.950`) + Tılsımlar (`14.200`) = **43.150 Altın**.
+- **60 Bölüm Beklenen Toplam Kazanç (Tek Sefer Geçiş):** **37.790 Altın** (`29.760` bölüm içi + `8.030` tamamlama bonusu); üst tavanlı tam performansla **47.290 Altın**.
+- **Örnek Bölümler:**
+  - Bölüm 1 (46 sn): ~120 bölüm içi (maks 160) + 30 tamamlama bonusu = **150 Altın**
+  - Bölüm 10 (Boss): ~280 bölüm içi (maks 320) + 100 tamamlama bonusu = **380 Altın**
+  - Bölüm 15 (50 sn): ~270 bölüm içi (maks 360) + 70 tamamlama bonusu = **340 Altın**
+  - Bölüm 30 (Boss): ~620 bölüm içi (maks 710) + 220 tamamlama bonusu = **840 Altın** (ilk 30 bölüm kümülatif ~11.020 altın)
+  - Bölüm 59 (69 sn): ~860 bölüm içi (maks 1.160) + 220 tamamlama bonusu = **1.080 Altın**
+  - Bölüm 60 (Final Boss): ~1.300 bölüm içi (maks 1.490) + 500 tamamlama bonusu = **1.800 Altın**
+
+### 7.3 Bölüm Bazlı Geçici Altın ve Atomik Aktarım Kuralları
+1. **Bölüm Sırasında (`PLAYING`):** Toplanan her sikke yalnızca bellek içi geçici bakiyeyi (`GoldEconomyManager.temporaryGold`) artırır. Kalıcı bakiye (`SaveData.walletGold`) ve `localStorage` **değişmez**. HUD kalıcı bakiyeyi ve `+X Geçici` rozetini ayrı gösterir.
+2. **Bölüm Başarısızlığında (`GAME_OVER`):** `failLevelSession()` geçici bakiyeyi ve havadaki sikkeleri tamamen sıfırlar. `recordLevelResult(..., won: false)` kalıcı `walletGold` ve `bestGold` değerlerini kesinlikle değiştirmez; altın başarımları tetiklenmez. Sonuç ekranında kazanılan altın `0` olarak, kaybedilen geçici altın ayrıca gösterilir.
+3. **Bölüm Başarısında (`LEVEL_CLEAR` / `VICTORY`):** Havadaki kazanılmış sikkeler tamamlanır, `settleLevelVictory(runId)` `collectedLevelGold + completionBonusGold` toplamını tek işlemde hesaplar. `recordLevelResult` bu toplamı tek atomik yazmayla kalıcı `walletGold` bakiyesine ekler ve `runId` bilgisini `SaveData.settledRunIds` içinde saklayarak ikinci kez aktarımı engeller. `gold_earned` Google Play başarımı yalnızca bu kalıcı aktarım sonrasında tetiklenir.
+4. **Uygulama Kapanması / Yeniden Başlatma:** Geçici altın yalnızca RAM'de tutulduğundan uygulama yarıda kapatılıp açıldığında kalıcı bakiyeye dönüşmez. Bölüm yeniden başlatıldığında `beginLevelSession()` geçici bakiyeyi `0` olarak sıfırlar.
+5. **Ödüllü Reklam İzolasyonu:** Google AdMob `OnUserEarnedRewardListener` + benzersiz `grantToken` doğrulamasıyla kazanılan reklam altınları (`adConfig.ts`: mağaza +100, günlük +150, bölüm sonu %35 / min 50 / maks 300) geçici bölüm bakiyesinden tamamen bağımsız olarak `creditPermanentRewardedAdGold` ile tek seferlik kalıcı bakiyeye aktarılır.
+
