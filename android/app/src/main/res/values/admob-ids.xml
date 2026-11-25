@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        Google AdMob Android App ID
+        ===========================
+        Şu anda Google'ın RESMİ TEST APP ID değeri tanımlıdır.
+        Yayınlamadan önce yalnızca bu değeri kendi AdMob konsolunuzdaki
+        gerçek App ID (ca-app-pub-XXXXXXXXXXXXXXXX~YYYYYYYYYY) ile değiştirin.
+    -->
+    <string name="admob_app_id" translatable="false">ca-app-pub-3940256099942544~3347511713</string>
+</resources>

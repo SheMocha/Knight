@@ -1,0 +1,6 @@
+{
+  "name": "The Black Knight: Medieval Gold Rush",
+  "description": "A mobile-first 2D side-scrolling medieval arcade action game built with Three.js. Smash barrels, bonk villagers, dodge witch curses, and collect gold across 5 kingdom levels.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

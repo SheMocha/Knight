@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  GOOGLE PLAY GAMES SERVICES V2 YAPILANDIRMA DOSYASI
+  ===================================================
+  ÖNEMLİ: Bu dosyadaki yer tutucu değerler SAHTE DEĞİLDİR; Google Play Console üzerinde
+  "Play Oyun Hizmetleri -> Kurulum ve yönetim -> Yapılandırma" ve "Başarımlar" adımları
+  tamamlandıktan sonra Google tarafından üretilen GERÇEK kimliklerle değiştirilmelidir.
+
+  Ayrıca aynı gerçek Achievement ID değerlerini `src/game/achievementsConfig.ts`
+  (veya `.env` içindeki VITE_PGS_ACH_* değişkenleri) içine de giriniz.
+-->
+<resources>
+    <!-- Google Play Console -> Play Games Services -> Project ID (yalnızca rakamlardan oluşur) -->
+    <string name="game_services_project_id" translatable="false">REPLACE_WITH_GOOGLE_PLAY_GAMES_PROJECT_ID</string>
+
+    <!-- BÖLÜM BAŞARIMLARI -->
+    <string name="achievement_ach_level_1" translatable="false">REPLACE_WITH_PLAY_CONSOLE_ID_ACH_LEVEL_1</string>
+    <string name="achievement_ach_level_5" translatable="false">REPLACE_WITH_PLAY_CONSOLE_ID_ACH_LEVEL_5</string>
+    <string name="achievement_ach_level_10" translatable="false">REPLACE_WITH_PLAY_CONSOLE_ID_ACH_LEVEL_10</string>
+    <string name="achievement_ach_level_20" translatable="false">REPLACE_WITH_PLAY_CONSOLE_ID_ACH_LEVEL_20</string>
+    <string name="achievement_ach_level_30" translatable="false">REPLACE_WITH_PLAY_CONSOLE_ID_ACH_LEVEL_30</string>
+    <string name="achievement_ach_level_40" translatable="false">REPLACE_WITH_PLAY_CONSOLE_ID_ACH_LEVEL_40</string>
+    <string name="achievement_ach_level_50" translatable="false">REPLACE_WITH_PLAY_CONSOLE_ID_ACH_LEVEL_50</string>
+    <string name="achievement_ach_level_60" translatable="false">REPLACE_WITH_PLAY_CONSOLE_ID_ACH_LEVEL_60</string>
+
+    <!-- SAVAŞ BAŞARIMLARI -->
+    <string name="achievement_ach_enemy_1" translatable="false">REPLACE_WITH_PLAY_CONSOLE_ID_ACH_ENEMY_1</string>
+    <string name="achievement_ach_enemy_100" translatable="false">REPLACE_WITH_PLAY_CONSOLE_ID_ACH_ENEMY_100</string>
+    <string name="achievement_ach_enemy_1000" translatable="false">REPLACE_WITH_PLAY_CONSOLE_ID_ACH_ENEMY_1000</string>
+    <string name="achievement_ach_enemy_5000" translatable="false">REPLACE_WITH_PLAY_CONSOLE_ID_ACH_ENEMY_5000</string>
+    <string name="achievement_ach_combo_10" translatable="false">REPLACE_WITH_PLAY_CONSOLE_ID_ACH_COMBO_10</string>
+    <string name="achievement_ach_combo_25" translatable="false">REPLACE_WITH_PLAY_CONSOLE_ID_ACH_COMBO_25</string>
+    <string name="achievement_ach_accuracy_master" translatable="false">REPLACE_WITH_PLAY_CONSOLE_ID_ACH_ACCURACY_MASTER</string>
+
+    <!-- EKONOMİ BAŞARIMLARI -->
+    <string name="achievement_ach_gold_1" translatable="false">REPLACE_WITH_PLAY_CONSOLE_ID_ACH_GOLD_1</string>
+    <string name="achievement_ach_gold_100" translatable="false">REPLACE_WITH_PLAY_CONSOLE_ID_ACH_GOLD_100</string>
+    <string name="achievement_ach_gold_1000" translatable="false">REPLACE_WITH_PLAY_CONSOLE_ID_ACH_GOLD_1000</string>
+    <string name="achievement_ach_gold_10000" translatable="false">REPLACE_WITH_PLAY_CONSOLE_ID_ACH_GOLD_10000</string>
+    <string name="achievement_ach_breakable_100" translatable="false">REPLACE_WITH_PLAY_CONSOLE_ID_ACH_BREAKABLE_100</string>
+
+    <!-- ÖZEL BAŞARIMLAR -->
+    <string name="achievement_ach_tnt_master" translatable="false">REPLACE_WITH_PLAY_CONSOLE_ID_ACH_TNT_MASTER</string>
+    <string name="achievement_ach_special_rewards_50" translatable="false">REPLACE_WITH_PLAY_CONSOLE_ID_ACH_SPECIAL_REWARDS_50</string>
+    <string name="achievement_ach_boss_1" translatable="false">REPLACE_WITH_PLAY_CONSOLE_ID_ACH_BOSS_1</string>
+    <string name="achievement_ach_boss_6" translatable="false">REPLACE_WITH_PLAY_CONSOLE_ID_ACH_BOSS_6</string>
+    <string name="achievement_ach_flawless_victory" translatable="false">REPLACE_WITH_PLAY_CONSOLE_ID_ACH_FLAWLESS_VICTORY</string>
+    <string name="achievement_ach_princess_guard" translatable="false">REPLACE_WITH_PLAY_CONSOLE_ID_ACH_PRINCESS_GUARD</string>
+    <string name="achievement_ach_royal_guard" translatable="false">REPLACE_WITH_PLAY_CONSOLE_ID_ACH_ROYAL_GUARD</string>
+    <string name="achievement_ach_patient_knight" translatable="false">REPLACE_WITH_PLAY_CONSOLE_ID_ACH_PATIENT_KNIGHT</string>
+    <string name="achievement_ach_big_hunt" translatable="false">REPLACE_WITH_PLAY_CONSOLE_ID_ACH_BIG_HUNT</string>
+    <string name="achievement_ach_true_legend" translatable="false">REPLACE_WITH_PLAY_CONSOLE_ID_ACH_TRUE_LEGEND</string>
+</resources>

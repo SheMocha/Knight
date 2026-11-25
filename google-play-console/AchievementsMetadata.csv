@@ -1,0 +1,30 @@
+İlk Adım,İlk bölümü tamamla.,FALSE,,Revealed,10,1
+Köyün Kahramanı,5 bölüm tamamla.,TRUE,5,Revealed,20,2
+Tecrübeli Şövalye,10 bölüm tamamla.,TRUE,10,Revealed,25,3
+Orta Çağ Efsanesi,20 bölüm tamamla.,TRUE,20,Revealed,30,4
+Krallığın Koruyucusu,30 bölüm tamamla.,TRUE,30,Revealed,35,5
+Efsanevi Savaşçı,40 bölüm tamamla.,TRUE,40,Revealed,40,6
+Karanlığın Fatihi,50 bölüm tamamla.,TRUE,50,Revealed,45,7
+Krallığın Kurtarıcısı,60 bölümün tamamını bitir.,TRUE,60,Revealed,50,8
+İlk Kan,İlk düşmanı etkisiz hale getir.,FALSE,,Revealed,10,9
+Yüzlük Kulüp,100 düşmanı etkisiz hale getir.,TRUE,100,Revealed,25,10
+Bin Savaş,1.000 düşmanı etkisiz hale getir.,TRUE,1000,Revealed,45,11
+Durdurulamaz,5.000 düşmanı etkisiz hale getir.,TRUE,5000,Revealed,50,12
+Kombo Ustası,Arka arkaya x10 kombo yap.,FALSE,,Revealed,25,13
+Kombo Efsanesi,Arka arkaya x25 kombo yap.,FALSE,,Revealed,45,14
+Kusursuz Zamanlama,Bir bölümü en az 10 vuruş ve %90 üzeri isabetle tamamla.,FALSE,,Revealed,30,15
+İlk Altın,İlk altınını kazan.,FALSE,,Revealed,10,16
+Küçük Servet,Toplam 100 altın kazan.,TRUE,100,Revealed,20,17
+Altın Avcısı,Toplam 1.000 altın kazan.,TRUE,1000,Revealed,35,18
+Kralın Hazinesi,Toplam 10.000 altın kazan.,TRUE,10000,Revealed,50,19
+Kırıcı,100 kırılabilir çevre nesnesi parçala.,TRUE,100,Revealed,30,20
+Patlama Ustası,TNT sandığıyla aynı anda birden fazla hedefi parçala.,FALSE,,Revealed,25,21
+Hazine Avcısı,"50 özel ödül, bonus veya ganimet kesesi kazan.",TRUE,50,Revealed,35,22
+Boss Avcısı,İlk bölüm sonu boss'unu yen.,FALSE,,Revealed,30,23
+Boss Efsanesi,6 özel boss'un tamamını yen.,TRUE,6,Revealed,50,24
+Kusursuz Zafer,"Hiç ıska, lanet veya hasar yaşamadan bir bölümü tamamla.",FALSE,,Revealed,35,25
+Prensesin Koruyucusu,Prensesin çıktığı bir bölümü ona vurmadan tamamla.,FALSE,,Revealed,25,26
+Kraliyet Muhafızı,Kralın çıktığı bir bölümü ona vurmadan tamamla.,FALSE,,Revealed,25,27
+Sabırlı Şövalye,15 saniye boyunca kombo kaybetmeden hedefleri vur.,FALSE,,Revealed,30,28
+Büyük Av,Tek bölümde 10.000 veya üzeri skor topla.,FALSE,,Revealed,35,29
+Gerçek Efsane,60. bölümü tamamlayarak Kızıl Ejderha'yı yen ve oyunu bitir.,FALSE,,Revealed,80,30

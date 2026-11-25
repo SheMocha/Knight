@@ -1,0 +1,57 @@
+apply plugin: 'com.android.application'
+apply plugin: 'org.jetbrains.kotlin.android'
+
+android {
+    namespace "com.blackknight.medievalgoldhunt"
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.blackknight.medievalgoldhunt"
+        minSdk 23
+        targetSdk 35
+        versionCode 1
+        versionName "1.0.0"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+        debug {
+            debuggable true
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+}
+
+repositories {
+    google()
+    mavenCentral()
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:1.7.0"
+    implementation "androidx.core:core-ktx:1.13.1"
+    implementation "androidx.activity:activity-ktx:1.9.2"
+    implementation project(':capacitor-android')
+
+    // Resmi Google Play Games Services Android SDK v2
+    implementation "com.google.android.gms:play-services-games-v2:20.1.2"
+    implementation "com.google.android.gms:play-services-base:18.5.0"
+
+    // Resmi Google Mobile Ads SDK (AdMob) & User Messaging Platform (UMP) SDK
+    implementation "com.google.android.gms:play-services-ads:23.6.0"
+    implementation "com.google.android.ump:user-messaging-platform:3.1.0"
+}
